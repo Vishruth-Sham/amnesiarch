@@ -1,0 +1,21 @@
+{
+	"name": "ai-notes",
+	"version": "0.1.0",
+	"description": "Chat-style search & append plugin for Obsidian.",
+	"main": "main.js",
+	"scripts": {
+		"dev": "node esbuild.config.mjs",
+		"build": "node esbuild.config.mjs production"
+	},
+	"license": "MIT",
+	"devDependencies": {
+		"@types/node": "^20.0.0",
+		"builtin-modules": "^3.3.0",
+		"esbuild": "^0.21.0",
+		"obsidian": "latest",
+		"typescript": "^5.4.0"
+	},
+	"dependencies": {
+		"@huggingface/transformers": "^3.0.0"
+	}
+}

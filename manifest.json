@@ -1,0 +1,10 @@
+{
+	"id": "ai-notes",
+	"name": "AI Notes",
+	"version": "0.1.0",
+	"minAppVersion": "1.5.0",
+	"description": "Chat-style search & append: find the right note by meaning, folder, or tag, preview the change, and append with one click.",
+	"author": "Vishruth Sham",
+	"authorUrl": "",
+	"isDesktopOnly": true
+}

@@ -1,0 +1,549 @@
+/* Hallmark · component: chat-panel (Obsidian sidebar) · genre: modern-minimal
+ * theme: custom (vibe: "quiet utilitarian, dark tinted neutral, one restrained violet" ·
+ *   built on Obsidian's own CSS variables rather than a fresh palette)
+ * states: default · hover · focus-visible · active · disabled · loading · error · success
+ */
+
+.ai-notes-view {
+	--ai-space-1: 4px;
+	--ai-space-2: 8px;
+	--ai-space-3: 12px;
+	--ai-space-4: 16px;
+	--ai-space-5: 24px;
+	--ai-radius-sm: 6px;
+	--ai-radius-md: 10px;
+	--ai-radius-pill: 999px;
+	--ai-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+	--ai-dur-fast: 120ms;
+	--ai-dur-base: 180ms;
+
+	/* One restrained violet accent, independent of the user's global Obsidian accent color,
+	   so this panel keeps a consistent identity across any theme. Tuned separately for
+	   Obsidian's dark/light body class since it isn't derived from --interactive-accent. */
+	--ai-accent: oklch(63% 0.13 296);
+	--ai-accent-strong: oklch(56% 0.15 296);
+	--ai-accent-soft: oklch(63% 0.13 296 / 16%);
+	--ai-accent-soft-strong: oklch(63% 0.13 296 / 28%);
+	--ai-on-accent: oklch(98% 0.01 296);
+	--ai-focus-ring: oklch(72% 0.14 296);
+
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	font-size: var(--font-ui-small);
+}
+
+.theme-light .ai-notes-view {
+	--ai-accent: oklch(49% 0.14 296);
+	--ai-accent-strong: oklch(42% 0.15 296);
+	--ai-accent-soft: oklch(49% 0.14 296 / 10%);
+	--ai-accent-soft-strong: oklch(49% 0.14 296 / 18%);
+	--ai-on-accent: oklch(99% 0 0);
+	--ai-focus-ring: oklch(46% 0.16 296);
+}
+
+.ai-notes-view,
+.ai-notes-view *,
+.ai-notes-view *::before,
+.ai-notes-view *::after {
+	box-sizing: border-box;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.ai-notes-view * {
+		animation-duration: 1ms !important;
+		transition-duration: 1ms !important;
+	}
+}
+
+/* ---------- header ---------- */
+
+.ai-notes-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--ai-space-2);
+	padding: var(--ai-space-2) var(--ai-space-3);
+	border-bottom: 1px solid var(--background-modifier-border);
+	min-width: 0;
+}
+
+.ai-notes-header-title {
+	display: flex;
+	align-items: baseline;
+	gap: var(--ai-space-2);
+	min-width: 0;
+}
+
+.ai-notes-header-name {
+	font-weight: 600;
+	color: var(--text-normal);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.ai-notes-badge {
+	flex-shrink: 0;
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+	background: var(--background-modifier-hover);
+	border-radius: var(--ai-radius-pill);
+	padding: 1px 8px;
+}
+
+.ai-notes-badge--muted {
+	background: transparent;
+	padding: 1px 0;
+	color: var(--text-muted);
+}
+
+/* ---------- generic icon button (header, etc.) ---------- */
+
+.ai-notes-icon-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 28px;
+	height: 28px;
+	padding: 0;
+	border: none;
+	border-radius: var(--ai-radius-sm);
+	background: transparent;
+	color: var(--text-muted);
+	cursor: pointer;
+	box-shadow: none;
+	transition:
+		background-color var(--ai-dur-fast) var(--ai-ease-out),
+		color var(--ai-dur-fast) var(--ai-ease-out);
+}
+
+.ai-notes-icon-btn:hover {
+	background: var(--background-modifier-hover);
+	color: var(--text-normal);
+}
+
+.ai-notes-icon-btn:active {
+	transform: translateY(1px);
+}
+
+.ai-notes-icon-btn:focus-visible {
+	outline: none;
+	box-shadow: 0 0 0 2px var(--ai-focus-ring);
+}
+
+.ai-notes-icon-btn svg {
+	width: 14px;
+	height: 14px;
+}
+
+/* ---------- message list ---------- */
+
+.ai-notes-messages {
+	flex: 1 1 auto;
+	overflow-y: auto;
+	overflow-x: hidden;
+	padding: var(--ai-space-3);
+	display: flex;
+	flex-direction: column;
+	gap: var(--ai-space-4);
+	min-width: 0;
+}
+
+.ai-notes-msg {
+	min-width: 0;
+}
+
+.ai-notes-msg--user {
+	background: var(--ai-accent-soft-strong);
+	color: var(--text-normal);
+	border-radius: var(--ai-radius-md);
+	padding: 6px 10px;
+	max-width: 70%;
+	margin-left: auto;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	min-width: 0;
+}
+
+.ai-notes-msg--assistant {
+	min-width: 0;
+}
+
+/* ---------- result blocks (shared) ---------- */
+
+.ai-notes-result {
+	min-width: 0;
+	padding: var(--ai-space-3);
+	border-radius: var(--ai-radius-md);
+}
+
+.ai-notes-result--match {
+	background: var(--background-secondary);
+}
+
+.ai-notes-result--nomatch {
+	padding: var(--ai-space-2) var(--ai-space-3);
+	background: transparent;
+}
+
+.ai-notes-result-head {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: var(--ai-space-2);
+	margin-bottom: var(--ai-space-2);
+}
+
+.ai-notes-result-title {
+	font-weight: 600;
+	color: var(--text-normal);
+	overflow-wrap: anywhere;
+	min-width: 0;
+}
+
+.ai-notes-result-excerpt {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+	margin-bottom: var(--ai-space-2);
+	overflow-wrap: anywhere;
+}
+
+.ai-notes-result-excerpt.is-clamped {
+	display: -webkit-box;
+	-webkit-line-clamp: 3;
+	line-clamp: 3;
+	-webkit-box-orient: vertical;
+	overflow: hidden;
+}
+
+.ai-notes-expand-btn {
+	display: inline-block;
+	margin: -4px 0 var(--ai-space-2) 0;
+	padding: 0;
+	border: none;
+	background: none;
+	color: var(--ai-accent);
+	font-size: var(--font-ui-smaller);
+	cursor: pointer;
+}
+
+.ai-notes-expand-btn:hover {
+	text-decoration: underline;
+}
+
+.ai-notes-expand-btn:focus-visible {
+	outline: none;
+	box-shadow: 0 0 0 2px var(--ai-focus-ring);
+	border-radius: 3px;
+}
+
+.ai-notes-diff {
+	background: var(--ai-accent-soft);
+	border-radius: var(--ai-radius-sm);
+	padding: var(--ai-space-2) var(--ai-space-3);
+	margin-bottom: var(--ai-space-3);
+	min-width: 0;
+}
+
+.ai-notes-diff-label {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+	margin-bottom: 2px;
+}
+
+.ai-notes-diff-line {
+	font-size: var(--font-ui-small);
+	color: var(--text-normal);
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+
+/* ---------- no-match compact state ---------- */
+
+.ai-notes-result-head-compact {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	font-weight: 600;
+	color: var(--text-normal);
+	margin-bottom: 2px;
+}
+
+.ai-notes-inline-icon {
+	display: inline-flex;
+	color: var(--text-muted);
+	flex-shrink: 0;
+}
+
+.ai-notes-inline-icon svg {
+	width: 13px;
+	height: 13px;
+}
+
+.ai-notes-result-meta {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+	margin-bottom: var(--ai-space-2);
+	overflow-wrap: anywhere;
+}
+
+.ai-notes-note-chip {
+	background: var(--background-modifier-hover);
+	border-radius: var(--ai-radius-sm);
+	padding: 0 5px;
+	font-size: var(--font-ui-smaller);
+	color: var(--text-normal);
+}
+
+.ai-notes-tip {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+	margin-bottom: var(--ai-space-2);
+}
+
+/* ---------- actions / buttons ---------- */
+
+.ai-notes-actions {
+	display: flex;
+	align-items: center;
+	gap: var(--ai-space-2);
+	flex-wrap: wrap;
+}
+
+.ai-notes-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 4px;
+	white-space: nowrap;
+	font-size: var(--font-ui-smaller);
+	font-weight: 500;
+	line-height: 1;
+	padding: 7px 12px;
+	border-radius: var(--ai-radius-sm);
+	border: 1px solid transparent;
+	cursor: pointer;
+	box-shadow: none;
+	transition:
+		background-color var(--ai-dur-fast) var(--ai-ease-out),
+		border-color var(--ai-dur-fast) var(--ai-ease-out),
+		color var(--ai-dur-fast) var(--ai-ease-out),
+		transform var(--ai-dur-fast) var(--ai-ease-out);
+}
+
+.ai-notes-btn:active {
+	transform: translateY(1px);
+}
+
+.ai-notes-btn:focus-visible {
+	outline: none;
+	box-shadow: 0 0 0 2px var(--ai-focus-ring);
+}
+
+.ai-notes-btn:disabled {
+	cursor: not-allowed;
+	opacity: 0.6;
+	transform: none;
+}
+
+.ai-notes-btn--primary {
+	background: var(--ai-accent);
+	color: var(--ai-on-accent);
+}
+
+.ai-notes-btn--primary:hover:not(:disabled) {
+	background: var(--ai-accent-strong);
+}
+
+.ai-notes-btn--primary[data-state="loading"] {
+	opacity: 0.85;
+}
+
+.ai-notes-btn--primary[data-state="error"] {
+	background: var(--background-modifier-hover);
+	color: var(--text-error);
+	border-color: var(--text-error);
+}
+
+.ai-notes-btn--secondary {
+	background: var(--background-modifier-hover);
+	color: var(--text-normal);
+}
+
+.ai-notes-btn--secondary:hover:not(:disabled) {
+	background: var(--background-modifier-border);
+}
+
+.ai-notes-btn--secondary[data-state="success"] {
+	color: var(--ai-accent);
+}
+
+.ai-notes-btn--ghost {
+	background: transparent;
+	color: var(--text-muted);
+}
+
+.ai-notes-btn--ghost:hover:not(:disabled) {
+	color: var(--text-normal);
+	background: var(--background-modifier-hover);
+}
+
+.ai-notes-btn--ghost[data-state="success"] {
+	color: var(--ai-accent);
+}
+
+.ai-notes-done {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+}
+
+.ai-notes-done .ai-notes-inline-icon {
+	color: var(--ai-accent);
+}
+
+.ai-notes-alts {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	flex-wrap: wrap;
+	margin-top: var(--ai-space-2);
+}
+
+.ai-notes-alts-label {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+}
+
+.ai-notes-chip-btn {
+	font-size: var(--font-ui-smaller);
+	color: var(--ai-accent);
+	background: transparent;
+	border: none;
+	padding: 2px 4px;
+	max-width: 140px;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	cursor: pointer;
+	border-radius: 4px;
+}
+
+.ai-notes-chip-btn:hover {
+	background: var(--ai-accent-soft);
+}
+
+.ai-notes-chip-btn:focus-visible {
+	outline: none;
+	box-shadow: 0 0 0 2px var(--ai-focus-ring);
+}
+
+/* ---------- composer ---------- */
+
+.ai-notes-composer {
+	border-top: 1px solid var(--background-modifier-border);
+	padding: var(--ai-space-3);
+}
+
+.ai-notes-composer-box {
+	display: flex;
+	align-items: flex-end;
+	gap: var(--ai-space-2);
+	background: var(--background-primary-alt, var(--background-secondary));
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--ai-radius-md);
+	padding: 6px 6px 6px 10px;
+	transition: border-color var(--ai-dur-fast) var(--ai-ease-out);
+}
+
+.ai-notes-composer-box:focus-within {
+	border-color: var(--ai-accent);
+}
+
+.ai-notes-tag-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	flex-shrink: 0;
+	background: var(--ai-accent);
+	color: var(--ai-on-accent);
+	border-radius: var(--ai-radius-pill);
+	padding: 3px 4px 3px 10px;
+	font-size: var(--font-ui-smaller);
+	font-weight: 600;
+	max-width: 40%;
+	margin-bottom: 4px;
+}
+
+.ai-notes-tag-chip span:first-child {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.ai-notes-tag-chip-remove {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 18px;
+	height: 18px;
+	border: none;
+	border-radius: 50%;
+	background: transparent;
+	color: var(--ai-on-accent);
+	opacity: 0.85;
+	cursor: pointer;
+	font-size: 13px;
+	line-height: 1;
+	padding: 0;
+}
+
+.ai-notes-tag-chip-remove:hover {
+	opacity: 1;
+	background: oklch(100% 0 0 / 18%);
+}
+
+.ai-notes-tag-chip-remove:focus-visible {
+	outline: none;
+	box-shadow: 0 0 0 2px var(--ai-focus-ring);
+}
+
+.ai-notes-input {
+	flex: 1 1 auto;
+	min-width: 0;
+	resize: none;
+	min-height: 1.6em;
+	max-height: 8em;
+	border: none;
+	background: transparent;
+	box-shadow: none;
+	padding: 4px 2px;
+	color: var(--text-normal);
+}
+
+.ai-notes-input:focus {
+	outline: none;
+	box-shadow: none;
+}
+
+.ai-notes-input::placeholder {
+	color: var(--text-muted);
+	opacity: 1;
+}
+
+.ai-notes-send-btn {
+	flex-shrink: 0;
+}
+
+.ai-notes-help {
+	margin-top: var(--ai-space-2);
+	font-size: var(--font-ui-smaller);
+	color: var(--text-faint);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
