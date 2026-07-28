@@ -302,6 +302,75 @@
 	margin-bottom: var(--ai-space-2);
 }
 
+/* ---------- ambiguous state (Phase 4: margin-based confidence) ---------- */
+
+.ai-notes-result--ambiguous {
+	padding: var(--ai-space-2) var(--ai-space-3);
+	background: transparent;
+}
+
+.ai-notes-ambiguous-list {
+	display: flex;
+	flex-direction: column;
+	gap: var(--ai-space-1);
+	margin: var(--ai-space-2) 0;
+}
+
+.ai-notes-ambiguous-row {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--ai-space-2);
+	width: 100%;
+	background: var(--background-secondary);
+	border: 1px solid transparent;
+	border-radius: var(--ai-radius-sm);
+	padding: var(--ai-space-2) var(--ai-space-3);
+	cursor: pointer;
+	text-align: left;
+	transition: border-color var(--ai-dur-fast) var(--ai-ease-out);
+}
+
+.ai-notes-ambiguous-row:hover {
+	border-color: var(--ai-accent);
+}
+
+.ai-notes-ambiguous-row:focus-visible {
+	outline: none;
+	box-shadow: 0 0 0 2px var(--ai-focus-ring);
+}
+
+.ai-notes-ambiguous-title {
+	font-weight: 600;
+	color: var(--text-normal);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	min-width: 0;
+}
+
+/* ---------- create-new-note form (Phase 4: "no match" as a real outcome) ---------- */
+
+.ai-notes-create-form {
+	margin-top: var(--ai-space-2);
+}
+
+.ai-notes-create-title-input {
+	width: 100%;
+	background: var(--background-primary-alt, var(--background-secondary));
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--ai-radius-sm);
+	padding: 6px 10px;
+	font-size: var(--font-ui-small);
+	color: var(--text-normal);
+	margin-bottom: var(--ai-space-2);
+}
+
+.ai-notes-create-title-input:focus {
+	outline: none;
+	border-color: var(--ai-accent);
+}
+
 /* ---------- actions / buttons ---------- */
 
 .ai-notes-actions {

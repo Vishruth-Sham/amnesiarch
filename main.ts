@@ -1,16 +1,26 @@
-import { Plugin, TFile, WorkspaceLeaf } from "obsidian";
+import { Notice, Plugin, TFile, WorkspaceLeaf } from "obsidian";
 import { VIEW_TYPE_AI_NOTES_CHAT } from "src/constants";
 import { NoteCache } from "src/index/NoteCache";
 import { VaultIndexer } from "src/index/VaultIndexer";
+import { AiNotesSettings, DEFAULT_SETTINGS } from "src/settings/Settings";
+import { AiNotesSettingsTab } from "src/settings/SettingsTab";
+import { ProfileCache } from "src/search/ProfileCache";
 import { ChatView } from "src/view/ChatView";
 
 export default class AiNotesPlugin extends Plugin {
 	cache!: NoteCache;
 	indexer!: VaultIndexer;
+	profileCache!: ProfileCache;
+	settings!: AiNotesSettings;
 
 	async onload(): Promise<void> {
+		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+
 		this.cache = new NoteCache(this.app, this.manifest.dir ?? `.obsidian/plugins/${this.manifest.id}`);
-		this.indexer = new VaultIndexer(this.app, this.cache);
+		this.indexer = new VaultIndexer(this.app, this.cache, () => this.settings.excludePatterns);
+		this.profileCache = new ProfileCache(this.cache);
+
+		this.addSettingTab(new AiNotesSettingsTab(this.app, this));
 
 		this.registerView(VIEW_TYPE_AI_NOTES_CHAT, (leaf: WorkspaceLeaf) => new ChatView(leaf, this));
 
@@ -22,6 +32,36 @@ export default class AiNotesPlugin extends Plugin {
 			id: "open-ai-notes-chat",
 			name: "Open AI Notes chat",
 			callback: () => void this.activateView(),
+		});
+
+		this.addCommand({
+			id: "rebuild-index",
+			name: "Rebuild index",
+			callback: () => {
+				new Notice("AI Notes: rebuilding index from scratch…");
+				void this.indexer.rebuildAll().then(() => new Notice(`AI Notes: rebuilt (${this.cache.size()} notes indexed).`));
+			},
+		});
+
+		this.addCommand({
+			id: "show-vault-profile",
+			name: "Show vault profile (debug)",
+			callback: () => {
+				const profile = this.profileCache.getProfile();
+				const weights = this.profileCache.getWeights();
+				if (!profile) {
+					new Notice("AI Notes: no notes indexed yet.");
+					return;
+				}
+				console.log("AI Notes: vault profile", profile);
+				console.log("AI Notes: derived structural weights", weights);
+				new Notice(
+					`AI Notes vault profile (full detail in console):\n` +
+						`${profile.noteCount} notes · title ${weights.title.toFixed(2)} · ` +
+						`folder ${weights.folder.toFixed(2)} · tag ${weights.tag.toFixed(2)}`,
+					8000,
+				);
+			},
 		});
 
 		this.registerEvent(
@@ -53,6 +93,13 @@ export default class AiNotesPlugin extends Plugin {
 
 	onunload(): void {
 		this.app.workspace.detachLeavesOfType(VIEW_TYPE_AI_NOTES_CHAT);
+		// Flush any pending debounced cache write (NoteCache.scheduleSave()) immediately rather
+		// than losing up to CACHE_SAVE_DEBOUNCE_MS of indexing progress on quit/disable.
+		void this.cache.flush().catch((e) => console.error("AI Notes: failed to flush cache on unload", e));
+	}
+
+	async saveSettings(): Promise<void> {
+		await this.saveData(this.settings);
 	}
 
 	async activateView(): Promise<void> {
