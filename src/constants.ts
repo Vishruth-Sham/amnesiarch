@@ -3,7 +3,7 @@ export const VIEW_TYPE_AI_NOTES_CHAT = "ai-notes-chat-view";
 export const MODEL_ID = "Xenova/all-MiniLM-L6-v2";
 export const EMBEDDING_DIM = 384;
 
-export const MIN_CONFIDENCE = 0.5;
+export const MIN_CONFIDENCE = 0.4;
 /**
  * Minimum gap between the #1 and #2 result to call #1 "unambiguous" rather than merely
  * "above the confidence floor". Absolute cosine-score cutoffs shift with corpus size; a
