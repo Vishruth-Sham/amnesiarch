@@ -1,9 +1,10 @@
 import { ItemView, WorkspaceLeaf, Notice, App, TFile, setIcon } from "obsidian";
 import type AiNotesPlugin from "../../main";
-import { VIEW_TYPE_AI_NOTES_CHAT, MIN_CONFIDENCE } from "../constants";
+import { VIEW_TYPE_AI_NOTES_CHAT, MIN_CONFIDENCE, MIN_MARGIN } from "../constants";
 import { search } from "../search/HybridSearch";
 import { embedText } from "../embeddings/EmbeddingModel";
 import { appendToNote, copyToClipboard } from "../append/AppendService";
+import { createNote, proposeTitle } from "../create/CreateNoteService";
 import { SearchResult } from "../types";
 
 const EXCERPT_CLAMP_THRESHOLD = 140; // chars; above this we offer a "Show more" toggle
@@ -188,7 +189,8 @@ export class ChatView extends ItemView {
 		try {
 			const queryText = tagQuery ?? noteText;
 			const queryVec = await embedText(queryText);
-			const results = search(queryVec, queryText, this.plugin.cache.getAll());
+			const weights = this.plugin.profileCache.getWeights();
+			const results = search(queryVec, queryText, this.plugin.cache.getAll(), weights);
 
 			const wrap = this.messagesEl.createDiv({ cls: "ai-notes-msg ai-notes-msg--assistant" });
 			this.renderResult(wrap, noteText, queryText, results, 0, tagQuery !== null, false);
@@ -223,19 +225,70 @@ export class ChatView extends ItemView {
 		container.empty();
 
 		const top = results[selectedIndex];
-		const confident = forceAccept || (top && top.score >= MIN_CONFIDENCE);
-
 		if (!top) {
 			this.renderEmptyState(container, appendText);
 			return;
 		}
 
-		if (!confident) {
+		// forceAccept covers every path where the user already made an explicit choice --
+		// "Use closest", an alternate chip, or a pick from the ambiguous list below. Once picked,
+		// always render as a confident match: re-running the margin check against the same
+		// results would be nonsensical (the user just resolved the ambiguity themselves).
+		if (forceAccept) {
+			this.renderMatch(container, appendText, top, results, selectedIndex, usedTag);
+			return;
+		}
+
+		if (top.score < MIN_CONFIDENCE) {
 			this.renderNoMatch(container, appendText, queryText, top, results, usedTag);
 			return;
 		}
 
+		// Margin between #1 and #2, not an absolute score cutoff: raw cosine-score distributions
+		// shift with corpus size, so a fixed threshold means something different at 200 notes
+		// than at 20,000. The margin directly asks "is there a clear winner?" (see MIN_MARGIN's
+		// definition in constants.ts / plans/v2-scale-first.md §4 Phase 4).
+		const second = results[1];
+		const margin = second ? top.score - second.score : Infinity;
+		if (results.length > 1 && margin < MIN_MARGIN) {
+			this.renderAmbiguous(container, appendText, queryText, results, usedTag);
+			return;
+		}
+
 		this.renderMatch(container, appendText, top, results, selectedIndex, usedTag);
+	}
+
+	private renderAmbiguous(
+		container: HTMLElement,
+		appendText: string,
+		queryText: string,
+		results: SearchResult[],
+		usedTag: boolean,
+	): void {
+		container.addClass("ai-notes-result", "ai-notes-result--ambiguous");
+
+		const head = container.createDiv({ cls: "ai-notes-result-head-compact" });
+		const icon = head.createSpan({ cls: "ai-notes-inline-icon" });
+		setIcon(icon, "list");
+		head.createSpan({ text: "A few notes could fit — pick one" });
+
+		const list = container.createDiv({ cls: "ai-notes-ambiguous-list" });
+		for (const result of results.slice(0, 3)) {
+			const idx = results.indexOf(result);
+			const row = list.createEl("button", {
+				cls: "ai-notes-ambiguous-row",
+				attr: { title: result.entry.path },
+			});
+			row.createSpan({ cls: "ai-notes-ambiguous-title", text: result.entry.title });
+			row.createSpan({ cls: "ai-notes-badge ai-notes-badge--muted", text: `${Math.round(result.score * 100)}%` });
+			row.addEventListener("click", () => {
+				this.renderResult(container, appendText, queryText, results, idx, usedTag, true);
+			});
+		}
+
+		const actions = container.createDiv({ cls: "ai-notes-actions" });
+		this.renderCreateNoteAction(actions, container, appendText);
+		this.createCopyButton(actions, appendText, "Copy");
 	}
 
 	private renderEmptyState(container: HTMLElement, appendText: string): void {
@@ -279,7 +332,74 @@ export class ChatView extends ItemView {
 		useClosest.addEventListener("click", () => {
 			this.renderResult(container, appendText, queryText, results, 0, usedTag, true);
 		});
+		this.renderCreateNoteAction(actions, container, appendText);
 		this.createCopyButton(actions, appendText, "Copy");
+	}
+
+	// ---------- create-new-note flow (Phase 4: "no match" is a real outcome, not a dead end) ----------
+
+	private renderCreateNoteAction(actions: HTMLElement, container: HTMLElement, appendText: string): void {
+		const createBtn = actions.createEl("button", { cls: "ai-notes-btn ai-notes-btn--ghost", text: "Create new note" });
+		createBtn.addEventListener("click", () => {
+			createBtn.remove();
+			this.renderCreateNoteForm(container, appendText);
+		});
+	}
+
+	/** Proposes a title but never creates anything without an explicit confirm click on the
+	 *  (editable) title the user actually sees -- generating a title is new content, and the
+	 *  append-text invariant (CLAUDE.md) means automation should never silently write something
+	 *  the user didn't approve. */
+	private renderCreateNoteForm(container: HTMLElement, appendText: string): void {
+		const form = container.createDiv({ cls: "ai-notes-create-form" });
+		const input = form.createEl("input", {
+			cls: "ai-notes-create-title-input",
+			attr: { type: "text", "aria-label": "New note title" },
+		});
+		input.value = proposeTitle(appendText);
+
+		const formActions = form.createDiv({ cls: "ai-notes-actions" });
+		const confirmBtn = formActions.createEl("button", { cls: "ai-notes-btn ai-notes-btn--primary", text: "Create" });
+		const cancelBtn = formActions.createEl("button", { cls: "ai-notes-btn ai-notes-btn--ghost", text: "Cancel" });
+
+		const submit = async () => {
+			const title = input.value.trim();
+			if (!title) {
+				input.focus();
+				return;
+			}
+			confirmBtn.disabled = true;
+			cancelBtn.disabled = true;
+			confirmBtn.setAttr("data-state", "loading");
+			confirmBtn.setText("Creating…");
+			try {
+				const file = await createNote(this.plugin.app, title, appendText);
+				form.empty();
+				const done = form.createDiv({ cls: "ai-notes-done" });
+				const check = done.createSpan({ cls: "ai-notes-inline-icon" });
+				setIcon(check, "check");
+				done.createSpan({ text: `Created ${file.basename}` });
+			} catch (e) {
+				console.error("AI Notes: failed to create note", e);
+				confirmBtn.disabled = false;
+				cancelBtn.disabled = false;
+				confirmBtn.removeAttribute("data-state");
+				confirmBtn.setText("Create");
+				new Notice("AI Notes: couldn't create the note — see console for details.");
+			}
+		};
+
+		confirmBtn.addEventListener("click", () => void submit());
+		cancelBtn.addEventListener("click", () => form.remove());
+		input.addEventListener("keydown", (evt: KeyboardEvent) => {
+			if (evt.key === "Enter") {
+				evt.preventDefault();
+				void submit();
+			}
+		});
+
+		input.focus();
+		input.select();
 	}
 
 	private renderMatch(

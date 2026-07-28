@@ -7,8 +7,35 @@ export interface NoteMetadata {
 	aliases: string[];
 	outgoingLinks: string[];
 	backlinks: string[];
+	frontmatter: Record<string, string>;
 	ctime: number;
 	mtime: number;
+}
+
+/** Frontmatter keys already captured elsewhere on NoteEntry (or injected by Obsidian itself),
+ *  so they're excluded from the generic `frontmatter` bag to avoid duplicate/confusing entries. */
+const FRONTMATTER_KEYS_EXCLUDED = new Set(["tags", "aliases", "position"]);
+
+/** Flatten a frontmatter value to a single string for the generic `frontmatter` bag (used by
+ *  vault profiling and, later, structured query grounding). Arrays -> comma-joined; objects are
+ *  skipped (nested YAML structures aren't meaningful as a flat key->value signal); everything
+ *  else -> String(). */
+function flattenFrontmatterValue(value: unknown): string | null {
+	if (value === null || value === undefined) return null;
+	if (Array.isArray(value)) return value.map((v) => String(v)).join(", ");
+	if (typeof value === "object") return null;
+	return String(value);
+}
+
+function extractFrontmatter(frontmatter: Record<string, unknown> | undefined): Record<string, string> {
+	if (!frontmatter) return {};
+	const out: Record<string, string> = {};
+	for (const [key, value] of Object.entries(frontmatter)) {
+		if (FRONTMATTER_KEYS_EXCLUDED.has(key)) continue;
+		const flat = flattenFrontmatterValue(value);
+		if (flat !== null && flat !== "") out[key] = flat;
+	}
+	return out;
 }
 
 export function extractMetadata(app: App, file: TFile): NoteMetadata {
@@ -29,6 +56,7 @@ export function extractMetadata(app: App, file: TFile): NoteMetadata {
 		aliases,
 		outgoingLinks,
 		backlinks,
+		frontmatter: extractFrontmatter(cache?.frontmatter),
 		ctime: file.stat.ctime,
 		mtime: file.stat.mtime,
 	};

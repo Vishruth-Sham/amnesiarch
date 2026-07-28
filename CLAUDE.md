@@ -4,7 +4,17 @@ Context for whoever (human or Claude) picks this project up next. The README is 
 
 ## Current state
 
-v1 is built and verified working end-to-end in the real dev vault (indexing, search, `@tag` targeting, accept/append, decline/copy). The chat panel UI was redesigned once already (quiet-utilitarian visual language, see `styles.css` header comment). v2 is planned but not started — see `plans/v2-llm-intent-extraction.md` (local LLM intent extraction via Ollama, feeding the same deterministic `HybridSearch.ts`, plus finally wiring up the `outgoingLinks`/`backlinks`/`ctime`/`mtime` fields that v1 captures but never reads).
+v1 is built and verified working end-to-end in the real dev vault (indexing, search, `@tag` targeting, accept/append, decline/copy). The chat panel UI was redesigned once already (quiet-utilitarian visual language, see `styles.css` header comment).
+
+v2 planning was reframed around scale (large/heterogeneous vaults as the design center, not an edge case) rather than jumping straight to LLM intent extraction — see `plans/v2-scale-first.md`, which supersedes the older `plans/v2-llm-intent-extraction.md` (that file's Ollama HTTP-mechanics and date-parsing design still apply to the new plan's deferred Phase 5). **Phases 0–4 of that plan are implemented** (`tsc`/`esbuild` clean; not yet run/clicked through in a real vault — see "No automated tests exist" below):
+- **Phase 0** — cache format v2: int8-quantized embeddings (`src/embeddings/Quantize.ts`), debounced writes with periodic checkpoint flushes (`NoteCache.scheduleSave()`/`flush()`).
+- **Phase 1** — chunked embeddings (`src/index/Chunker.ts`) fixing a real v1 bug: notes were embedded from a 4000-char slice while MiniLM's `max_seq_length` is 256 tokens (~1000 chars), so ~3/4 of every note was silently invisible to search. `NoteEntry.embedding: number[]` is gone; `NoteEntry.chunks: NoteChunk[]` (score = max over chunks) replaces it.
+- **Phase 2** — vault profiling (`src/index/VaultProfiler.ts`) + adaptive structural weights (`src/search/AdaptiveWeights.ts`, `src/search/ProfileCache.ts`) so `structuralScore`'s title/folder/tag balance adapts to the vault (e.g. zettelkasten UID titles vs PARA-style folders) instead of one global constant. Frontmatter properties are now captured (`MetadataExtractor.ts`) instead of discarded. Debug command: "AI Notes: Show vault profile".
+- **Phase 3** — progressive indexing: most-recently-modified-first ordering, periodic save checkpoints so a killed initial index doesn't lose the whole batch, and folder-prefix exclude patterns (Settings tab — first one this plugin has — plus "AI Notes: Rebuild index" command).
+- **Phase 4** — margin-based confidence (`MIN_MARGIN` in `constants.ts`) instead of an absolute score cutoff alone, a genuine "ambiguous — pick one" UI state, and "no confident match" now offers creating a new note (`src/create/CreateNoteService.ts`) rather than dead-ending.
+- **Phase 5** (grounded query IR + Ollama/in-process LLM backend) is intentionally not started — "we'll see" per the user.
+
+Cache format bumped to v2; old caches are detected and fully re-indexed (no note-by-note migration — see `NoteCache.load()`), so the first load after upgrading will re-embed the whole vault.
 
 ## Do not "clean up" `EmbeddingModel.ts` — read this first
 
