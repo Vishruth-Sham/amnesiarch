@@ -1,11 +1,11 @@
 import { Notice, Plugin, TFile, WorkspaceLeaf } from "obsidian";
-import { VIEW_TYPE_AI_NOTES_CHAT } from "src/constants";
+import { VIEW_TYPE_AI_NOTES_QUICK_CAPTURE, LEGACY_VIEW_TYPE_AI_NOTES_CHAT } from "src/constants";
 import { NoteCache } from "src/index/NoteCache";
 import { VaultIndexer } from "src/index/VaultIndexer";
 import { AiNotesSettings, DEFAULT_SETTINGS } from "src/settings/Settings";
 import { AiNotesSettingsTab } from "src/settings/SettingsTab";
 import { ProfileCache } from "src/search/ProfileCache";
-import { ChatView } from "src/view/ChatView";
+import { QuickCaptureView } from "src/view/QuickCaptureView";
 
 export default class AiNotesPlugin extends Plugin {
 	cache!: NoteCache;
@@ -22,15 +22,18 @@ export default class AiNotesPlugin extends Plugin {
 
 		this.addSettingTab(new AiNotesSettingsTab(this.app, this));
 
-		this.registerView(VIEW_TYPE_AI_NOTES_CHAT, (leaf: WorkspaceLeaf) => new ChatView(leaf, this));
+		this.registerView(VIEW_TYPE_AI_NOTES_QUICK_CAPTURE, (leaf: WorkspaceLeaf) => new QuickCaptureView(leaf, this));
 
-		this.addRibbonIcon("message-circle", "Open AI Notes chat", () => {
+		this.addRibbonIcon("inbox", "Open Quick Capture", () => {
 			void this.activateView();
 		});
 
 		this.addCommand({
+			// Stable ID preserved across the chat-panel-to-Quick-Capture rename so any hotkey a
+			// user already assigned to this command keeps working -- only the visible name and
+			// what it opens changed.
 			id: "open-ai-notes-chat",
-			name: "Open AI Notes chat",
+			name: "Open Quick Capture",
 			callback: () => void this.activateView(),
 		});
 
@@ -87,12 +90,16 @@ export default class AiNotesPlugin extends Plugin {
 
 		// Don't block plugin load on a potentially slow first-time vault index.
 		this.app.workspace.onLayoutReady(() => {
+			// A saved workspace layout from before the chat-panel-to-Quick-Capture rename can
+			// still reference the old view-type string; nothing is registered for it anymore, so
+			// detach it rather than leaving Obsidian to show a broken "missing view" leaf.
+			this.app.workspace.detachLeavesOfType(LEGACY_VIEW_TYPE_AI_NOTES_CHAT);
 			void this.indexer.initialize().catch((e) => console.error("AI Notes: indexing failed", e));
 		});
 	}
 
 	onunload(): void {
-		this.app.workspace.detachLeavesOfType(VIEW_TYPE_AI_NOTES_CHAT);
+		this.app.workspace.detachLeavesOfType(VIEW_TYPE_AI_NOTES_QUICK_CAPTURE);
 		// Flush any pending debounced cache write (NoteCache.scheduleSave()) immediately rather
 		// than losing up to CACHE_SAVE_DEBOUNCE_MS of indexing progress on quit/disable.
 		void this.cache.flush().catch((e) => console.error("AI Notes: failed to flush cache on unload", e));
@@ -104,10 +111,13 @@ export default class AiNotesPlugin extends Plugin {
 
 	async activateView(): Promise<void> {
 		const { workspace } = this.app;
-		let leaf = workspace.getLeavesOfType(VIEW_TYPE_AI_NOTES_CHAT)[0];
+		let leaf = workspace.getLeavesOfType(VIEW_TYPE_AI_NOTES_QUICK_CAPTURE)[0];
 		if (!leaf) {
-			leaf = workspace.getRightLeaf(false) ?? workspace.getLeaf(true);
-			await leaf.setViewState({ type: VIEW_TYPE_AI_NOTES_CHAT, active: true });
+			// Quick Capture's two-pane layout (180px sidebar + flex-1 editor) needs real width,
+			// unlike the old chat panel which lived in the narrow right sidebar -- open a leaf
+			// in the main workspace area instead.
+			leaf = workspace.getLeaf(true);
+			await leaf.setViewState({ type: VIEW_TYPE_AI_NOTES_QUICK_CAPTURE, active: true });
 		}
 		workspace.revealLeaf(leaf);
 	}

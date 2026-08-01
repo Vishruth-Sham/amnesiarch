@@ -6,9 +6,9 @@ import { deriveStructuralWeights, EQUAL_WEIGHTS, StructuralWeights } from "./Ada
  * Lazily (re)computes the vault profile and derived structural weights, keyed off
  * NoteCache.generation so it only redoes the O(notes) pass when the cache has actually
  * changed -- not on every keystroke/search call. Deliberately not wired through
- * VaultIndexer's onIndexingComplete callback: that's a single function-property slot ChatView
- * already claims for its badge, and turning it into a proper multi-listener event just to hang
- * this off it would be a bigger change than a plain cache-with-a-version-check needs to be.
+ * VaultIndexer's onIndexingComplete callback: that's a single function-property slot, and
+ * turning it into a proper multi-listener event just to hang this off it would be a bigger
+ * change than a plain cache-with-a-version-check needs to be.
  */
 export class ProfileCache {
 	private lastGeneration = -1;
