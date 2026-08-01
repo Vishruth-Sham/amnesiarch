@@ -2,19 +2,9 @@
 
 An "AI Quick Capture" view for Obsidian that solves one specific problem: you have a fleeting thought ("Feature XYZ is also a good idea for project ABC"), and the note it belongs in has a filename that doesn't match how you'd say that out loud. Write it into a plain Quick Capture note, hit "Sort this note", and it proposes where the thought belongs — append to a confident match, pick from a few plausible notes, or create a new one — then jumps you to the result.
 
-## Status
-
-**v1 shipped and working**, since redesigned around an in-note routing UI (this replaced an earlier sidebar-chatbot pattern — see `src/view/QuickCaptureView.ts`). v2 (local LLM intent extraction, layered on top of the same deterministic search) is planned — see [`plans/`](plans/) for the design (gitignored, local-only).
-
 ## How it works
 
-- **Indexing**: every note gets a local embedding (via `@huggingface/transformers`, running fully on-device — no API keys, nothing leaves your machine) plus metadata pulled straight from Obsidian's own caches: folder path, tags, aliases, `[[wikilinks]]`.
-- **Search**: a hybrid score — semantic similarity (meaning) blended with lexical overlap against note titles/folders/tags (so "project ABC" counts for something even when the wording is vague).
-- **Routing decision**: a confident match offers to append directly; a handful of close candidates shows a pick-one list (or a live manual search override); nothing confident enough offers to create a new note instead (with an editable, explicitly-confirmed title).
-- **Folder targeting on create**: when creating a new note, an optional "describe destination" field accepts constrained natural language (`New folder Experiments under AI inside Learning`) and resolves it against your real vault folder tree sibling-by-sibling — with a live preview, explicit acknowledgement of any fuzzy correction or ambiguity, and no silent routing. Leave it blank and notes are created at the vault root as before.
-- **Preview, never silent**: the destination is always shown before anything is written, and what lands in a note is always your exact typed text — automation only ever decides *where* it goes, never rewrites *what* it says.
-
-Full design rationale — what was tried and rejected (pure embeddings alone, LightRAG) and why — lives in the plan history.
+Everything runs locally — no API keys, nothing leaves your machine. Search blends semantic similarity with your note titles, folders, and tags, so it holds up even when your wording is vague. The destination is always shown before anything is written, and what lands in a note is always your exact typed text — automation only ever decides *where* it goes, never rewrites *what* it says. When creating a new note, you can also describe where it should live in plain language (`New folder Experiments under AI inside Learning`) and it'll build that structure for you, asking before it guesses.
 
 ## Development
 
@@ -31,22 +21,6 @@ ln -s /path/to/AI-notes "<vault>/.obsidian/plugins/ai-notes"
 ```
 
 Then enable "AI Notes" under Settings → Community plugins in Obsidian.
-
-## Project layout
-
-```
-main.ts                        # plugin entry: onload/onunload, wires everything together
-src/
-  embeddings/EmbeddingModel.ts # local WASM embedding model (lazy-loaded)
-  index/                       # vault indexing: metadata extraction, JSON cache, incremental updates
-  search/HybridSearch.ts       # semantic + lexical scoring
-  search/NotePicker.ts         # deterministic local ranking for the manual "search instead" override
-  append/AppendService.ts      # append-to-note
-  create/CreateNoteService.ts  # create-new-note / title proposal / root + targeted-destination creation
-  create/FolderDestination.ts  # destination-text parser + sibling-scoped folder resolver
-  view/QuickCaptureView.ts     # the Quick Capture UI (main-area view)
-  view/AnchoredTooltip.ts      # anchored hover/focus tooltip component
-```
 
 ## License
 
