@@ -5,3 +5,6 @@ main.js
 notes-cache.json
 .claude/
 plans/
+design_change/
+design_handoff_ai_quick_capture/
+orchestration/
