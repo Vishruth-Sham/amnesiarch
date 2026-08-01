@@ -1,4 +1,6 @@
-import { App, normalizePath, TFile } from "obsidian";
+import { App, normalizePath, TFile, TFolder } from "obsidian";
+import { validateSegmentName } from "./FolderDestination";
+import { matchesExcludePattern } from "../index/ExcludeMatcher";
 
 const MAX_TITLE_WORDS = 8;
 const MAX_TITLE_LENGTH = 60;
@@ -44,4 +46,95 @@ export async function createNote(app: App, title: string, content: string): Prom
 		suffix++;
 	}
 	return app.vault.create(candidate, content + "\n");
+}
+
+/**
+ * Thrown by createNoteAtDestination() for every failure mode. Always carries the folder paths
+ * actually created during *this* attempt before the failure -- folder creation isn't atomic
+ * (brief "Failure handling"), so a caller must be able to report exactly what exists now without
+ * guessing, and must never auto-delete them: another plugin/event may already be relying on them.
+ */
+export class DestinationCreateError extends Error {
+	readonly createdFolders: string[];
+	constructor(message: string, createdFolders: string[]) {
+		super(message);
+		this.name = "DestinationCreateError";
+		this.createdFolders = createdFolders;
+	}
+}
+
+export interface CreateAtDestinationRequest {
+	folderPath: string;
+	/** Informational only -- see createNoteAtDestination()'s comment on why the live vault, not
+	 *  this list, is the actual authority on what needs creating. */
+	missingFolders: readonly string[];
+	title: string;
+	content: string; // exact Quick Capture draft -- append-text invariant, see createNote() above
+	excludePatterns?: readonly string[];
+}
+
+export interface CreateAtDestinationResult {
+	file: TFile;
+	createdFolders: string[];
+}
+
+/**
+ * Creates the folders in `folderPath` (parent-to-child) and then the note inside it, for a
+ * non-empty "Describe destination" plan the user has already visibly reviewed and confirmed.
+ * Unlike createNote(), a note-path collision here is never silently suffixed -- the caller is
+ * expected to have already surfaced an explicit open-existing/change-title/cancel choice before
+ * calling this (brief "New-folder and collision behavior"); this function's own collision check
+ * exists only as defense-in-depth against a plan that went stale between review and click.
+ *
+ * Every path is re-derived from live `app.vault.getAbstractFileByPath()` calls here, not trusted
+ * from the caller's `missingFolders` snapshot -- folders can be created, renamed, or removed by
+ * something else between when the plan was computed and when the user clicks Create (brief:
+ * "re-preflights live folder/file state immediately before mutation").
+ */
+export async function createNoteAtDestination(app: App, request: CreateAtDestinationRequest): Promise<CreateAtDestinationResult> {
+	const stem = sanitizeTitle(request.title);
+	const segments = request.folderPath ? request.folderPath.split("/") : [];
+
+	for (const seg of segments) {
+		const err = validateSegmentName(seg);
+		if (err) throw new DestinationCreateError(`Can't use "${request.folderPath}" -- ${err}`, []);
+	}
+	if (request.excludePatterns && request.excludePatterns.length > 0 && matchesExcludePattern(request.folderPath, [...request.excludePatterns])) {
+		throw new DestinationCreateError(`"${request.folderPath}" is excluded from this plugin and can't be used as a destination.`, []);
+	}
+
+	const createdFolders: string[] = [];
+	let builtPath = "";
+	for (const seg of segments) {
+		builtPath = normalizePath(builtPath ? `${builtPath}/${seg}` : seg);
+		const existing = app.vault.getAbstractFileByPath(builtPath);
+		if (existing) {
+			// A concurrent actor may have already created exactly this folder -- accept it only
+			// if it really is a folder at the exact expected path (brief "Failure handling").
+			if (existing instanceof TFolder) continue;
+			throw new DestinationCreateError(`"${builtPath}" already exists as a note, not a folder.`, createdFolders);
+		}
+		try {
+			await app.vault.createFolder(builtPath);
+			createdFolders.push(builtPath);
+		} catch (e) {
+			console.error("AI Notes: failed to create folder", builtPath, e);
+			throw new DestinationCreateError(`Couldn't create folder "${builtPath}" -- see console for details.`, createdFolders);
+		}
+	}
+
+	const notePath = normalizePath(request.folderPath ? `${request.folderPath}/${stem}.md` : `${stem}.md`);
+	if (app.vault.getAbstractFileByPath(notePath)) {
+		// Never overwrite, append, or numeric-suffix a targeted-destination collision (brief).
+		throw new DestinationCreateError(`"${notePath}" already exists.`, createdFolders);
+	}
+
+	let file: TFile;
+	try {
+		file = await app.vault.create(notePath, request.content + "\n");
+	} catch (e) {
+		console.error("AI Notes: failed to create note at destination", notePath, e);
+		throw new DestinationCreateError(`Couldn't create the note at "${notePath}" -- see console for details.`, createdFolders);
+	}
+	return { file, createdFolders };
 }
