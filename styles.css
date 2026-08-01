@@ -155,19 +155,35 @@
 	width: 100%;
 	resize: none;
 	border: none;
+	border-radius: 6px;
 	background: transparent;
 	padding: 2px;
 	color: var(--qc-text-body);
+	caret-color: var(--qc-accent);
 	font-family: inherit;
 	font-size: 15px;
 	line-height: 1.8;
 	outline: none;
 	box-shadow: none;
 	min-height: 120px;
+	transition: box-shadow 0.15s ease;
+}
+
+/* Quiet but unmistakable focus treatment at the textarea's own boundary -- deliberately not a
+   background/border in the resting state, which would read as a heavy card inside the editor
+   rather than plain, ready-to-type text (design_change #2). */
+.ai-quickcap-textarea:focus-visible {
+	outline: none;
+	box-shadow: 0 0 0 1.5px var(--qc-accent-ring);
+}
+
+.ai-quickcap-textarea:disabled {
+	opacity: 0.6;
+	cursor: not-allowed;
 }
 
 .ai-quickcap-textarea::placeholder {
-	color: rgba(255, 255, 255, 0.3);
+	color: rgba(255, 255, 255, 0.45);
 }
 
 .ai-quickcap-footer {
@@ -190,11 +206,9 @@
 	border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-.ai-quickcap-card-head {
+.ai-quickcap-content {
 	display: flex;
-	justify-content: space-between;
-	align-items: baseline;
-	margin-bottom: 6px;
+	flex-direction: column;
 	gap: 8px;
 }
 
@@ -208,20 +222,9 @@
 	min-width: 0;
 }
 
-.ai-quickcap-badge {
-	flex-shrink: 0;
-	font-size: 10.5px;
-	font-weight: 500;
-	color: rgba(255, 255, 255, 0.5);
-	background: rgba(255, 255, 255, 0.07);
-	border-radius: 999px;
-	padding: 2px 9px;
-}
-
 .ai-quickcap-excerpt {
 	color: rgba(255, 255, 255, 0.42);
 	font-size: 11.5px;
-	margin-bottom: 14px;
 	overflow-wrap: anywhere;
 }
 
@@ -235,59 +238,91 @@
 	color: rgba(255, 255, 255, 0.35);
 	font-size: 10.5px;
 	font-style: italic;
-	margin: -2px 0 10px;
 }
 
-/* ambiguous candidate list */
+/* confident (1 row) / ambiguous (up to 3 rows) result list */
 
-.ai-quickcap-candidate-list {
+.ai-quickcap-match-list {
 	display: flex;
 	flex-direction: column;
 	gap: 6px;
-	margin-bottom: 12px;
 }
 
-.ai-quickcap-candidate-row {
+.ai-quickcap-match-row {
 	display: flex;
 	width: 100%;
-	justify-content: space-between;
 	align-items: center;
+	gap: 10px;
 	appearance: none;
 	-webkit-appearance: none;
 	font-family: inherit;
 	text-align: left;
-	background: rgba(255, 255, 255, 0.04);
+	background: rgba(255, 255, 255, 0.035);
 	border: 1px solid transparent;
 	border-radius: var(--qc-radius-chip);
-	padding: 9px 12px;
+	padding: 10px 12px;
+	cursor: default;
+}
+
+button.ai-quickcap-match-row {
 	cursor: pointer;
-	gap: 8px;
 	transition: border-color 0.15s ease;
 }
 
-.ai-quickcap-candidate-row:hover {
+button.ai-quickcap-match-row:hover {
 	border-color: var(--qc-accent-ring);
 }
 
-.ai-quickcap-candidate-row:focus-visible {
+button.ai-quickcap-match-row:focus-visible {
 	outline: none;
 	border-color: var(--qc-accent);
 	box-shadow: 0 0 0 2px var(--qc-focus-ring);
 }
 
-.ai-quickcap-candidate-row:disabled {
+button.ai-quickcap-match-row:disabled {
 	cursor: not-allowed;
 	opacity: 0.6;
 }
 
-.ai-quickcap-candidate-title {
+.ai-quickcap-match-row.is-top {
+	background: var(--qc-accent-soft);
+	border-color: var(--qc-accent-ring);
+}
+
+.ai-quickcap-match-row-title {
+	flex: 1;
+	min-width: 0;
 	color: var(--qc-text-primary);
-	font-size: 12px;
+	font-size: 13px;
 	font-weight: 600;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
-	min-width: 0;
+}
+
+.ai-quickcap-match-bar-track {
+	flex-shrink: 0;
+	width: 56px;
+	height: 5px;
+	border-radius: 3px;
+	background: rgba(255, 255, 255, 0.1);
+	overflow: hidden;
+}
+
+.ai-quickcap-match-bar-fill {
+	height: 100%;
+	background: rgba(255, 255, 255, 0.4);
+}
+
+.ai-quickcap-match-row.is-top .ai-quickcap-match-bar-fill {
+	background: var(--qc-accent);
+}
+
+.ai-quickcap-match-row-label {
+	flex-shrink: 0;
+	font-size: 10.5px;
+	font-weight: 500;
+	color: rgba(255, 255, 255, 0.55);
 }
 
 /* create-new-note title input */
@@ -300,7 +335,6 @@
 	padding: 9px 12px;
 	font-size: 12.5px;
 	color: var(--qc-text-primary);
-	margin-bottom: 12px;
 	outline: none;
 	box-shadow: none;
 	font-family: inherit;
@@ -311,13 +345,254 @@
 	border-color: var(--qc-accent);
 }
 
-/* ---------- action buttons (all fully-rounded pills) ---------- */
+/* ---------- "Describe destination" (research/implementation-handoffs/
+   quick-capture-folder-destination.md) ---------- */
 
+.ai-quickcap-destination {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+
+.ai-quickcap-destination-label {
+	color: rgba(255, 255, 255, 0.45);
+	font-size: 11px;
+	font-weight: 600;
+}
+
+.ai-quickcap-destination-input {
+	width: 100%;
+	resize: vertical;
+	min-height: 44px;
+	background: rgba(0, 0, 0, 0.25);
+	border: 1px solid rgba(255, 255, 255, 0.1);
+	border-radius: var(--qc-radius-chip);
+	padding: 8px 12px;
+	font-size: 12.5px;
+	line-height: 1.5;
+	color: var(--qc-text-primary);
+	caret-color: var(--qc-accent);
+	outline: none;
+	box-shadow: none;
+	font-family: inherit;
+}
+
+.ai-quickcap-destination-input::placeholder {
+	color: rgba(255, 255, 255, 0.3);
+}
+
+.ai-quickcap-destination-input:focus-visible {
+	outline: none;
+	border-color: var(--qc-accent);
+	box-shadow: 0 0 0 1.5px var(--qc-accent-ring);
+}
+
+.ai-quickcap-destination-input:disabled,
+.ai-quickcap-destination-rename-input:disabled {
+	opacity: 0.55;
+	cursor: not-allowed;
+}
+
+.ai-quickcap-destination-hint {
+	color: rgba(255, 255, 255, 0.32);
+	font-size: 10.5px;
+}
+
+.ai-quickcap-destination-preview {
+	margin-top: 8px;
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.ai-quickcap-destination-error {
+	color: oklch(72% 0.16 25);
+	font-size: 11.5px;
+	line-height: 1.5;
+}
+
+/* Compact folder/note tree -- indentation is driven entirely by the row's own --qc-depth custom
+   property so renderDestinationTreeRow() never needs to know about pixel values. */
+.ai-quickcap-destination-tree {
+	display: flex;
+	flex-direction: column;
+	gap: 3px;
+}
+
+.ai-quickcap-destination-tree-label {
+	color: rgba(255, 255, 255, 0.4);
+	font-size: 10.5px;
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.03em;
+	margin-bottom: 2px;
+}
+
+.ai-quickcap-destination-tree-row {
+	display: flex;
+	align-items: baseline;
+	gap: 8px;
+	padding-left: calc(var(--qc-depth, 0) * 16px);
+	min-width: 0;
+	overflow-wrap: anywhere;
+}
+
+.ai-quickcap-destination-tree-name {
+	color: var(--qc-text-primary);
+	font-size: 12px;
+	font-weight: 600;
+}
+
+.ai-quickcap-destination-tree-tag {
+	color: rgba(255, 255, 255, 0.4);
+	font-size: 10.5px;
+	flex-shrink: 1;
+	min-width: 0;
+}
+
+.ai-quickcap-destination-final-path {
+	color: rgba(255, 255, 255, 0.65);
+	font-size: 11.5px;
+	overflow-wrap: anywhere;
+}
+
+.ai-quickcap-destination-note-hint {
+	color: rgba(255, 255, 255, 0.32);
+	font-size: 10.5px;
+}
+
+/* Correction / ambiguity / collision widgets -- each is a review state that must be resolved or
+   acknowledged before the primary Create action re-enables (see canCreateFromPlan()). */
+.ai-quickcap-destination-correction,
+.ai-quickcap-destination-ambiguous,
+.ai-quickcap-destination-collision {
+	padding: 10px 12px;
+	background: var(--qc-accent-soft);
+	border: 1px solid var(--qc-accent-ring);
+	border-radius: var(--qc-radius-chip);
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.ai-quickcap-destination-correction-text,
+.ai-quickcap-destination-ambiguous-text,
+.ai-quickcap-destination-collision-text {
+	color: var(--qc-text-primary);
+	font-size: 12px;
+	line-height: 1.5;
+	overflow-wrap: anywhere;
+}
+
+.ai-quickcap-destination-correction-actions,
+.ai-quickcap-destination-ambiguous-actions,
+.ai-quickcap-destination-collision-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+}
+
+.ai-quickcap-destination-sibling-picker {
+	margin-top: 4px;
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	max-height: 160px;
+	overflow-y: auto;
+}
+
+.ai-quickcap-destination-sibling-btn {
+	appearance: none;
+	-webkit-appearance: none;
+	text-align: left;
+	font-family: inherit;
+	background: rgba(0, 0, 0, 0.2);
+	border: 1px solid transparent;
+	border-radius: var(--qc-radius-chip);
+	padding: 6px 10px;
+	font-size: 11.5px;
+	color: var(--qc-text-body);
+	cursor: pointer;
+	transition: border-color 0.15s ease;
+}
+
+.ai-quickcap-destination-sibling-btn:hover {
+	border-color: var(--qc-accent-ring);
+}
+
+.ai-quickcap-destination-sibling-btn:focus-visible {
+	outline: none;
+	border-color: var(--qc-accent);
+	box-shadow: 0 0 0 2px var(--qc-focus-ring);
+}
+
+.ai-quickcap-destination-collision-rename {
+	display: flex;
+	gap: 6px;
+	flex-wrap: wrap;
+}
+
+.ai-quickcap-destination-rename-input {
+	flex: 1;
+	min-width: 120px;
+	background: rgba(0, 0, 0, 0.25);
+	border: 1px solid rgba(255, 255, 255, 0.1);
+	border-radius: var(--qc-radius-chip);
+	padding: 7px 10px;
+	font-size: 12px;
+	color: var(--qc-text-primary);
+	outline: none;
+	box-shadow: none;
+	font-family: inherit;
+}
+
+.ai-quickcap-destination-rename-input:focus-visible {
+	outline: none;
+	border-color: var(--qc-accent);
+}
+
+/* ---------- shared decision-shell divider + action row ---------- */
+
+.ai-quickcap-divider {
+	height: 0;
+	border-top: 1px solid rgba(255, 255, 255, 0.08);
+	margin: 14px 0 12px;
+}
+
+/* Two-group row: actionStart (destination/create/search actions) vs. actionEnd (Keep editing)
+   -- justify-content:space-between is the "flexible spacer" that always pins Keep editing to
+   the far right without a manual spacer element (design_change #5/#7). */
 .ai-quickcap-actions {
+	display: flex;
+	justify-content: space-between;
+	align-items: flex-start;
+	gap: 12px;
+	flex-wrap: wrap;
+}
+
+.ai-quickcap-actions-start {
+	display: flex;
+	gap: 8px;
+	flex-wrap: wrap;
+	min-width: 0;
+}
+
+.ai-quickcap-actions-end {
+	display: flex;
+	gap: 8px;
+	flex-shrink: 0;
+}
+
+/* Separate, self-contained action row for the note picker's own selected-destination confirm
+   step (Add and jump / Add and stay here / Back) -- not part of the shared decision shell's
+   action-row hierarchy, so it keeps the older flat layout rather than a start/end split. */
+.ai-quickcap-picker-confirm-actions {
 	display: flex;
 	gap: 8px;
 	flex-wrap: wrap;
 }
+
+/* ---------- action buttons (all fully-rounded pills) ---------- */
 
 .ai-quickcap-btn {
 	display: inline-flex;
@@ -366,12 +641,6 @@
 	background: rgba(255, 255, 255, 0.06);
 }
 
-.ai-quickcap-btn--fill {
-	flex: 1;
-	justify-content: center;
-	color: rgba(255, 255, 255, 0.6);
-}
-
 .ai-quickcap-btn--ghost {
 	padding: 8px 10px;
 	color: rgba(255, 255, 255, 0.4);
@@ -396,32 +665,16 @@
 	background: var(--qc-accent-hover);
 }
 
-/* ---------- manual note-search override ("Search notes instead") ---------- */
+/* ---------- manual note-search override ("Search instead") ---------- */
 
-.ai-quickcap-search-row {
-	margin-top: 10px;
+/* Mounted inside the shared decision shell (see createDecisionShell's `picker` region); the
+   open/close trigger is now a normal "Search instead" action-row button, not owned here. */
+.ai-quickcap-picker-region:empty {
+	display: none;
 }
 
-.ai-quickcap-search-trigger {
-	background: transparent;
-	border: none;
-	color: rgba(255, 255, 255, 0.4);
-	font-size: 11.5px;
-	font-weight: 500;
-	padding: 2px 0;
-	cursor: pointer;
-	box-shadow: none;
-	transition: color 0.15s ease;
-}
-
-.ai-quickcap-search-trigger:hover {
-	color: rgba(255, 255, 255, 0.7);
-}
-
-.ai-quickcap-search-trigger:focus-visible {
-	outline: none;
-	box-shadow: 0 0 0 2px var(--qc-focus-ring);
-	border-radius: 4px;
+.ai-quickcap-picker-region:not(:empty) {
+	margin-top: 2px;
 }
 
 .ai-quickcap-picker {
@@ -574,4 +827,49 @@
 	color: rgba(255, 255, 255, 0.4);
 	font-size: 13px;
 	padding: 4px 0;
+}
+
+/* ---------- anchored tooltip (AnchoredTooltip.ts) ---------- */
+
+.ai-quickcap-tooltip {
+	position: fixed;
+	z-index: 80;
+	max-width: 240px;
+	padding: 6px 10px;
+	border-radius: 6px;
+	background: #0a0a0b;
+	border: 1px solid rgba(255, 255, 255, 0.12);
+	box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+	color: var(--qc-text-primary);
+	font-size: 11px;
+	line-height: 1.4;
+	white-space: normal;
+	overflow-wrap: break-word;
+	pointer-events: none;
+	visibility: hidden;
+}
+
+.ai-quickcap-tooltip-text {
+	display: block;
+}
+
+.ai-quickcap-tooltip-arrow {
+	position: absolute;
+	width: 8px;
+	height: 8px;
+	margin-left: -4px;
+	background: inherit;
+	border: inherit;
+	border-width: 0;
+	transform: rotate(45deg);
+}
+
+.ai-quickcap-tooltip[data-placement="top"] .ai-quickcap-tooltip-arrow {
+	bottom: -5px;
+	border-width: 0 1px 1px 0;
+}
+
+.ai-quickcap-tooltip[data-placement="bottom"] .ai-quickcap-tooltip-arrow {
+	top: -5px;
+	border-width: 1px 0 0 1px;
 }

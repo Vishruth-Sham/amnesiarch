@@ -10,7 +10,8 @@ An "AI Quick Capture" view for Obsidian that solves one specific problem: you ha
 
 - **Indexing**: every note gets a local embedding (via `@huggingface/transformers`, running fully on-device — no API keys, nothing leaves your machine) plus metadata pulled straight from Obsidian's own caches: folder path, tags, aliases, `[[wikilinks]]`.
 - **Search**: a hybrid score — semantic similarity (meaning) blended with lexical overlap against note titles/folders/tags (so "project ABC" counts for something even when the wording is vague).
-- **Routing decision**: a confident match offers to append directly; a handful of close candidates shows a pick-one list; nothing confident enough offers to create a new note instead (with an editable, explicitly-confirmed title).
+- **Routing decision**: a confident match offers to append directly; a handful of close candidates shows a pick-one list (or a live manual search override); nothing confident enough offers to create a new note instead (with an editable, explicitly-confirmed title).
+- **Folder targeting on create**: when creating a new note, an optional "describe destination" field accepts constrained natural language (`New folder Experiments under AI inside Learning`) and resolves it against your real vault folder tree sibling-by-sibling — with a live preview, explicit acknowledgement of any fuzzy correction or ambiguity, and no silent routing. Leave it blank and notes are created at the vault root as before.
 - **Preview, never silent**: the destination is always shown before anything is written, and what lands in a note is always your exact typed text — automation only ever decides *where* it goes, never rewrites *what* it says.
 
 Full design rationale — what was tried and rejected (pure embeddings alone, LightRAG) and why — lives in the plan history.
@@ -39,9 +40,12 @@ src/
   embeddings/EmbeddingModel.ts # local WASM embedding model (lazy-loaded)
   index/                       # vault indexing: metadata extraction, JSON cache, incremental updates
   search/HybridSearch.ts       # semantic + lexical scoring
+  search/NotePicker.ts         # deterministic local ranking for the manual "search instead" override
   append/AppendService.ts      # append-to-note
-  create/CreateNoteService.ts  # create-new-note / title proposal
+  create/CreateNoteService.ts  # create-new-note / title proposal / root + targeted-destination creation
+  create/FolderDestination.ts  # destination-text parser + sibling-scoped folder resolver
   view/QuickCaptureView.ts     # the Quick Capture UI (main-area view)
+  view/AnchoredTooltip.ts      # anchored hover/focus tooltip component
 ```
 
 ## License
