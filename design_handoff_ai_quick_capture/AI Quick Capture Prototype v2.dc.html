@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics>
+<style>body{margin:0;background:#0a0a0b;color-scheme:dark}</style>
+</helmet>
+<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;-webkit-font-smoothing:antialiased;padding:24px;box-sizing:border-box">
+<div style="width:920px;height:600px;position:relative;display:flex;background:#18181a;border:1px solid rgba(255,255,255,.07);border-radius:16px;overflow:hidden;box-shadow:0 30px 90px rgba(0,0,0,.55),0 1px 0 rgba(255,255,255,.04) inset">
+
+<div style="width:180px;flex-shrink:0;background:#141415;border-right:1px solid rgba(255,255,255,.06);padding:20px 12px;display:flex;flex-direction:column;gap:2px">
+<div style="font-size:10px;font-weight:600;color:rgba(255,255,255,.32);letter-spacing:.09em;text-transform:uppercase;padding:2px 8px 12px">Notes</div>
+<sc-for list="{{ navItems }}" as="item" hint-placeholder-count="4">
+<div onClick="{{ item.onClick }}" style="{{ item.style }}" style-hover="{{ item.styleHover }}">{{ item.title }}</div>
+</sc-for>
+</div>
+
+<div style="flex:1;display:flex;flex-direction:column;min-width:0">
+<div style="padding:28px 32px 6px;font-size:21px;font-weight:650;color:#f4f4f5;letter-spacing:-0.01em">{{ activeTitle }}</div>
+
+<sc-if value="{{ isInbox }}" hint-placeholder-val="{{ true }}">
+<div style="flex:1;display:flex;flex-direction:column;padding:6px 32px 26px;min-height:0;gap:14px">
+<textarea value="{{ text }}" onChange="{{ onChangeText }}" placeholder="Write a quick note — sort it after." style="flex:1;width:100%;box-sizing:border-box;resize:none;border:none;background:transparent;padding:2px;color:#e4e4e7;font-family:inherit;font-size:15px;line-height:1.8;outline:none"></textarea>
+
+<sc-if value="{{ showChips }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;flex-direction:column;gap:6px">
+<div style="font-size:10.5px;color:rgba(255,255,255,.3);margin-bottom:2px;letter-spacing:.02em">or try one</div>
+<sc-for list="{{ chips }}" as="chip" hint-placeholder-count="3">
+<button onClick="{{ chip.onClick }}" style="text-align:left;background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.07);color:rgba(255,255,255,.55);border-radius:9px;padding:8px 12px;font-size:12px;cursor:pointer;transition:background .15s ease" style-hover="background:rgba(255,255,255,.07);color:rgba(255,255,255,.8)">{{ chip.label }}</button>
+</sc-for>
+</div>
+</sc-if>
+
+<sc-if value="{{ canSort }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;justify-content:flex-end">
+<button onClick="{{ onSort }}" style="display:inline-flex;align-items:center;gap:7px;font-size:12.5px;font-weight:600;padding:9px 16px 9px 18px;border-radius:999px;border:none;cursor:pointer;background:oklch(63% 0.13 296);color:oklch(98% 0.01 296);box-shadow:0 1px 2px rgba(0,0,0,.35),0 0 0 1px oklch(63% 0.13 296 / 40%);transition:background .15s ease" style-hover="background:oklch(58% 0.14 296)">Sort this note</button>
+</div>
+</sc-if>
+
+<sc-if value="{{ phaseMatch }}" hint-placeholder-val="{{ false }}">
+<div style="padding:16px;background:rgba(255,255,255,.035);border-radius:12px;border:1px solid rgba(255,255,255,.08)">
+<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px"><b style="color:#f4f4f5;font-size:12.5px;font-weight:600">{{ matchTitle }}</b><span style="font-size:10.5px;font-weight:500;color:rgba(255,255,255,.5);background:rgba(255,255,255,.07);border-radius:999px;padding:2px 9px">92% match</span></div>
+<div style="color:rgba(255,255,255,.42);font-size:11.5px;margin-bottom:14px">...check travel docs before we...</div>
+<div style="display:flex;gap:8px;flex-wrap:wrap">
+<button onClick="{{ onAddAndJump }}" style="display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:600;padding:8px 14px;border-radius:999px;border:none;cursor:pointer;background:oklch(63% 0.13 296);color:oklch(98% 0.01 296);transition:background .15s ease" style-hover="background:oklch(58% 0.14 296)">Add and jump</button>
+<button onClick="{{ onAddAndStay }}" style="display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:500;padding:8px 14px;border-radius:999px;border:1px solid rgba(255,255,255,.1);cursor:pointer;background:transparent;color:#e4e4e7;transition:background .15s ease" style-hover="background:rgba(255,255,255,.06)">Add and stay here</button>
+<button onClick="{{ onDecline }}" style="display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:500;padding:8px 10px;border-radius:999px;border:none;cursor:pointer;background:transparent;color:rgba(255,255,255,.4);transition:color .15s ease" style-hover="color:rgba(255,255,255,.7)">Keep editing</button>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ phaseAmbiguous }}" hint-placeholder-val="{{ false }}">
+<div style="padding:16px;background:rgba(255,255,255,.035);border-radius:12px;border:1px solid rgba(255,255,255,.08)">
+<div style="color:rgba(255,255,255,.45);font-size:11.5px;margin-bottom:10px">A few notes could match — pick one</div>
+<div style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px">
+<sc-for list="{{ ambiguousOptions }}" as="opt" hint-placeholder-count="2">
+<div onClick="{{ opt.onSelect }}" style="display:flex;justify-content:space-between;align-items:center;background:rgba(255,255,255,.04);border:1px solid transparent;border-radius:9px;padding:9px 12px;cursor:pointer;transition:border-color .15s ease" style-hover="border-color:oklch(63% 0.13 296 / 60%)">
+<span style="color:#f4f4f5;font-size:12px;font-weight:600">{{ opt.title }}</span>
+<span style="font-size:10.5px;font-weight:500;color:rgba(255,255,255,.5);background:rgba(255,255,255,.07);border-radius:999px;padding:2px 9px">{{ opt.badge }}</span>
+</div>
+</sc-for>
+</div>
+<div style="display:flex;gap:8px">
+<button onClick="{{ onGoCreate }}" style="flex:1;font-size:12px;font-weight:500;padding:8px 14px;border-radius:999px;border:1px solid rgba(255,255,255,.1);cursor:pointer;background:transparent;color:rgba(255,255,255,.6);transition:background .15s ease" style-hover="background:rgba(255,255,255,.06)">+ New note instead</button>
+<button onClick="{{ onDecline }}" style="font-size:12px;font-weight:500;padding:8px 10px;border-radius:999px;border:none;cursor:pointer;background:transparent;color:rgba(255,255,255,.4);transition:color .15s ease" style-hover="color:rgba(255,255,255,.7)">Keep editing</button>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ phaseCreate }}" hint-placeholder-val="{{ false }}">
+<div style="padding:16px;background:rgba(255,255,255,.035);border-radius:12px;border:1px solid rgba(255,255,255,.08)">
+<div style="color:rgba(255,255,255,.45);font-size:11.5px;margin-bottom:10px">No confident match — new note</div>
+<input value="{{ newTitle }}" onChange="{{ onChangeTitle }}" style="width:100%;box-sizing:border-box;background:rgba(0,0,0,.25);border:1px solid rgba(255,255,255,.1);border-radius:9px;padding:9px 12px;font-size:12.5px;color:#f4f4f5;margin-bottom:12px;outline:none" />
+<div style="display:flex;gap:8px">
+<button onClick="{{ onCreateAndJump }}" style="display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:600;padding:8px 14px;border-radius:999px;border:none;cursor:pointer;background:oklch(63% 0.13 296);color:oklch(98% 0.01 296);transition:background .15s ease" style-hover="background:oklch(58% 0.14 296)">Create and jump</button>
+<button onClick="{{ onBackFromCreate }}" style="font-size:12px;font-weight:500;padding:8px 10px;border-radius:999px;border:none;cursor:pointer;background:transparent;color:rgba(255,255,255,.4);transition:color .15s ease" style-hover="color:rgba(255,255,255,.7)">Back</button>
+</div>
+</div>
+</sc-if>
+</div>
+</sc-if>
+
+<sc-if value="{{ isNotInbox }}" hint-placeholder-val="{{ false }}">
+<div style="flex:1;padding:6px 32px 26px;color:#e4e4e7;font-size:14px;line-height:1.85;overflow:auto">
+<sc-for list="{{ lines }}" as="line" hint-placeholder-count="2">
+<p style="{{ line.style }}">{{ line.text }}</p>
+</sc-for>
+</div>
+</sc-if>
+
+</div>
+</div>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = {
+    text: '',
+    sorted: false,
+    forceCreate: false,
+    newTitleOverride: '',
+    activeNoteId: 'inbox',
+    appendedLines: {},
+    customNotes: []
+  };
+
+  notes = {
+    inbox: { title: 'Quick Capture' },
+    journal: { title: '2026-07 Journal', lines: [
+      { text: 'Packed for the coast trip, need to double check travel docs before we leave.' },
+      { text: 'Weather looks fine for the drive. Should leave by 7am.' }
+    ]},
+    travel: { title: 'Travel Prep Checklist', lines: [
+      { text: 'Boarding passes printed.' },
+      { text: 'Currency exchanged.' }
+    ]},
+    projects: { title: 'Q3 Roadmap', lines: [
+      { text: 'Ship the export flow, then revisit pricing tiers.' }
+    ]}
+  };
+
+  route(text) {
+    const t = text.toLowerCase().trim();
+    if (!t) return 'idle';
+    if (t.includes('passport') || t.includes('trip')) return 'match';
+    if (t.includes('dentist') || t.includes('book')) return 'ambiguous';
+    return 'create';
+  }
+
+  guessTitle(text) {
+    return text.trim().split(/\s+/).slice(0, 4)
+      .map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+  }
+
+  setText = (t) => this.setState({ text: t, sorted: false, forceCreate: false });
+  onChangeText = (e) => this.setState({ text: e.target.value, sorted: false, forceCreate: false });
+  onChangeTitle = (e) => this.setState({ newTitleOverride: e.target.value });
+  onSort = () => this.setState({ sorted: true });
+  onDecline = () => this.setState({ sorted: false, forceCreate: false });
+  onGoCreate = () => this.setState(s => ({ forceCreate: true, newTitleOverride: this.guessTitle(s.text) }));
+  onBackFromCreate = () => this.setState({ sorted: false, forceCreate: false });
+
+  goToNote = (id) => this.setState({ activeNoteId: id });
+
+  file(noteId, jump) {
+    this.setState(s => ({
+      appendedLines: { ...s.appendedLines, [noteId]: s.text },
+      activeNoteId: jump ? noteId : 'inbox',
+      text: '', sorted: false, forceCreate: false
+    }));
+  }
+  onAddAndJump = () => this.file('journal', true);
+  onAddAndStay = () => this.file('journal', false);
+
+  onCreateAndJump = () => {
+    this.setState(s => {
+      const title = s.newTitleOverride || this.guessTitle(s.text);
+      const id = 'custom-' + Date.now();
+      const newNote = { id, title, lines: [{ text: s.text, highlight: true }] };
+      return {
+        customNotes: [...s.customNotes, newNote],
+        activeNoteId: id, text: '', sorted: false, forceCreate: false, newTitleOverride: ''
+      };
+    });
+  };
+
+  renderVals() {
+    const s = this.state;
+    const isInbox = s.activeNoteId === 'inbox';
+    const phase = s.sorted ? (s.forceCreate ? 'create' : this.route(s.text)) : 'unsorted';
+    const activeBase = this.notes[s.activeNoteId] || s.customNotes.find(n => n.id === s.activeNoteId) || { title: '', lines: [] };
+    const baseLines = activeBase.lines || [];
+    const lines = baseLines.map(l => ({
+      text: l.text,
+      style: l.highlight
+        ? 'background:oklch(63% 0.13 296 / 16%);border-left:2px solid oklch(63% 0.13 296);padding:5px 10px;margin:0 0 10px -10px;border-radius:0 8px 8px 0'
+        : 'margin:0 0 10px;color:#e4e4e7'
+    }));
+    if (s.appendedLines[s.activeNoteId]) {
+      lines.push({
+        text: s.appendedLines[s.activeNoteId],
+        style: 'background:oklch(63% 0.13 296 / 16%);border-left:2px solid oklch(63% 0.13 296);padding:5px 10px;margin:0 0 10px -10px;border-radius:0 8px 8px 0'
+      });
+    }
+
+    const navBase = [
+      { id: 'inbox', title: 'Quick Capture' },
+      { id: 'journal', title: '2026-07 Journal' },
+      { id: 'travel', title: 'Travel Prep Checklist' },
+      { id: 'projects', title: 'Q3 Roadmap' },
+      ...s.customNotes.map(n => ({ id: n.id, title: n.title }))
+    ];
+    const navItems = navBase.map(n => {
+      const active = n.id === s.activeNoteId;
+      return {
+        title: n.title,
+        onClick: () => this.goToNote(n.id),
+        style: `font-size:12px;font-weight:${active ? '600' : '400'};padding:8px 10px;border-radius:8px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:${active ? '#f4f4f5' : 'rgba(255,255,255,.5)'};background:${active ? 'oklch(63% 0.13 296 / 16%)' : 'transparent'};transition:background .15s ease`,
+        styleHover: active ? '' : 'background:rgba(255,255,255,.045);color:rgba(255,255,255,.8)'
+      };
+    });
+
+    return {
+      isInbox,
+      isNotInbox: !isInbox,
+      text: s.text,
+      newTitle: s.newTitleOverride || (phase === 'create' ? this.guessTitle(s.text) : ''),
+      activeTitle: activeBase.title,
+      lines,
+      navItems,
+      showChips: isInbox && !s.text.trim(),
+      canSort: isInbox && !!s.text.trim() && !s.sorted,
+      phaseMatch: phase === 'match',
+      matchTitle: '2026-07 Journal',
+      phaseAmbiguous: phase === 'ambiguous',
+      phaseCreate: phase === 'create',
+      ambiguousOptions: [
+        { title: '2026-07 Journal', badge: '61%', onSelect: () => this.file('journal', true) },
+        { title: 'Travel Prep Checklist', badge: '58%', onSelect: () => this.file('travel', true) }
+      ],
+      chips: [
+        { label: 'renew the passport before the trip', onClick: () => this.setText('renew the passport before the trip') },
+        { label: 'book the dentist next month', onClick: () => this.setText('book the dentist next month') },
+        { label: 'call mom this weekend', onClick: () => this.setText('call mom this weekend') }
+      ],
+      onChangeText: this.onChangeText,
+      onChangeTitle: this.onChangeTitle,
+      onSort: this.onSort,
+      onDecline: this.onDecline,
+      onGoCreate: this.onGoCreate,
+      onBackFromCreate: this.onBackFromCreate,
+      onAddAndJump: this.onAddAndJump,
+      onAddAndStay: this.onAddAndStay,
+      onCreateAndJump: this.onCreateAndJump
+    };
+  }
+}
+
+</script>
+</body>
+</html>
