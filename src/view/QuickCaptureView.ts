@@ -1,24 +1,12 @@
 import { ItemView, WorkspaceLeaf, Notice, TFile } from "obsidian";
-import type AiNotesPlugin from "../../main";
-import { VIEW_TYPE_AI_NOTES_QUICK_CAPTURE, MIN_CONFIDENCE, MIN_MARGIN } from "../constants";
+import type AmnesiarchPlugin from "../../main";
+import { VIEW_TYPE_AMNESIARCH_QUICK_CAPTURE, MIN_CONFIDENCE, MIN_MARGIN } from "../constants";
 import { search } from "../search/HybridSearch";
 import { embedText } from "../embeddings/EmbeddingModel";
 import { appendToNote } from "../append/AppendService";
 import { createNote, createNoteAtDestination, proposeTitle, DestinationCreateError } from "../create/CreateNoteService";
-import {
-	DestinationChoice,
-	DestinationPlan,
-	FolderInfo,
-	FolderSnapshot,
-	SegmentResolution,
-	TitleSource,
-	buildFolderSnapshot,
-	parseDestinationInstruction,
-	resolveFolderDestination,
-	isDestinationParseError,
-	segmentChoiceKey,
-	sanitizeTitleForPath,
-} from "../create/FolderDestination";
+import { DestinationPlan, buildFolderSnapshot, resolveFolderDestination, sanitizeTitleForPath } from "../create/FolderDestination";
+import { ComposerFolderToken, ProgressiveDestinationComposer } from "../create/ProgressiveDestinationComposer";
 import { rankNoteMetadata, NotePickerItem } from "../search/NotePicker";
 import { AnchoredTooltipController, setQuickCaptureTooltip } from "./AnchoredTooltip";
 import { SearchResult } from "../types";
@@ -122,7 +110,7 @@ function findHighlightRange(lines: string[], appended: string): [number, number]
  * backend services unchanged.
  */
 export class QuickCaptureView extends ItemView {
-	private plugin: AiNotesPlugin;
+	private plugin: AmnesiarchPlugin;
 
 	// ---- view-local state (design handoff README "State Management") ----
 	private activeNoteId: string = QUICK_CAPTURE_ID;
@@ -130,24 +118,12 @@ export class QuickCaptureView extends ItemView {
 	private sorted = false;
 	private forceCreate = false;
 
-	// ---- "Describe destination" state (design handoff: quick-capture-folder-destination.md) ----
-	// Ephemeral and tied to the exact draft it was computed for (destinationDraftSnapshot) --
-	// see clearDestinationState()/recomputeDestinationPlan() and the brief's "Input lifecycle".
-	private destinationText = "";
+	// ---- "Create at" composer state (progressive-destination-composer-addendum.md) ----
+	// Ephemeral and tied to the exact draft it was computed for (composerDraftSnapshot) -- see
+	// clearDestinationState()/recomputeDestinationPlan() and the addendum's lifecycle rules.
+	private composer: ProgressiveDestinationComposer | null = null;
 	private destinationPlan: DestinationPlan | null = null;
-	private destinationChoices = new Map<string, DestinationChoice>();
-	private destinationDraftSnapshot: string | null = null;
-	/** Cached alongside destinationPlan purely so "Choose another folder" can list siblings
-	 *  without rebuilding the snapshot on every click. */
-	private folderSnapshot: FolderSnapshot | null = null;
-	private titleValue = "";
-	/** Once true, destination typing/plan changes can never overwrite titleValue again -- only
-	 *  the title input's own `input` handler may (title precedence rule #1). */
-	private titleDirty = false;
-	private titleSource: TitleSource = "capture-proposal";
-	/** segmentKey of the fuzzy correction currently showing its bounded "choose another folder"
-	 *  sibling list, or null. Purely transient render state, not part of the accepted plan. */
-	private destinationExpandedChoice: string | null = null;
+	private composerDraftSnapshot: string | null = null;
 
 	/** Session-accumulated: notes jumped to or filed into this session, most-recent first.
 	 *  Deliberately NOT the whole vault -- see CLAUDE.md / implementation brief decision #3. */
@@ -174,23 +150,18 @@ export class QuickCaptureView extends ItemView {
 	 *  during a pending operation can never toggle `.disabled` on an unrelated, later-mounted
 	 *  textarea. */
 	private draftTextarea: HTMLTextAreaElement | null = null;
-	/** Currently-mounted create-card title input / destination textarea, if the create card is
-	 *  showing -- used only to focus/select them from other controls ("Change title", "Edit
-	 *  destination"), never snapshotted across an await. */
-	private titleInputEl: HTMLInputElement | null = null;
-	private destinationTextareaEl: HTMLTextAreaElement | null = null;
 	/** Guards against overlapping Sort/Add/Create requests; all three are mutually exclusive
 	 *  from the UI at any given moment. */
 	private busy = false;
 	private tooltipController: AnchoredTooltipController | null = null;
 
-	constructor(leaf: WorkspaceLeaf, plugin: AiNotesPlugin) {
+	constructor(leaf: WorkspaceLeaf, plugin: AmnesiarchPlugin) {
 		super(leaf);
 		this.plugin = plugin;
 	}
 
 	getViewType(): string {
-		return VIEW_TYPE_AI_NOTES_QUICK_CAPTURE;
+		return VIEW_TYPE_AMNESIARCH_QUICK_CAPTURE;
 	}
 
 	getDisplayText(): string {
@@ -236,76 +207,61 @@ export class QuickCaptureView extends ItemView {
 		this.resetNotePicker();
 	}
 
-	/** Clears all "Describe destination" state -- draft edits, successful filing (append or
+	/** Clears all "Create at" composer state -- draft edits, successful filing (append or
 	 *  create), and view disposal all invalidate it because it may have targeted content that no
-	 *  longer exists (brief "Input lifecycle": "Any edit to the Quick Capture draft clears the
-	 *  destination instruction..."; "Successful append... successful creation... view disposal
-	 *  clears all destination state"). "Keep editing" deliberately never calls this. */
+	 *  longer exists (addendum "Preserve lifecycle rules": draft edit / successful append or
+	 *  create / view close all clear it). "Keep editing" deliberately never calls this. */
 	private clearDestinationState(): void {
-		this.destinationText = "";
+		this.composer?.destroy();
+		this.composer = null;
 		this.destinationPlan = null;
-		this.destinationChoices = new Map();
-		this.destinationDraftSnapshot = null;
-		this.folderSnapshot = null;
-		this.titleValue = "";
-		this.titleDirty = false;
-		this.titleSource = "capture-proposal";
-		this.destinationExpandedChoice = null;
+		this.composerDraftSnapshot = null;
+	}
+
+	/** Finds a composer token that was accepted as "existing" but no longer resolves to the exact
+	 *  same folder in the freshly-recomputed plan -- e.g. it was deleted or renamed between when
+	 *  the user accepted it and now. Returns a human-readable message, or null if every existing-
+	 *  disposition token still matches. This is what makes the "expected-existing folder
+	 *  disappearing aborts rather than being recreated" rule (addendum acceptance criterion 15)
+	 *  visible in the UI, on top of createNoteAtDestination()'s own independent defense-in-depth
+	 *  re-preflight immediately before mutation. */
+	private findStaleExistingToken(folders: readonly ComposerFolderToken[], plan: DestinationPlan): string | null {
+		for (let i = 0; i < folders.length; i++) {
+			const token = folders[i];
+			if (token.disposition !== "existing") continue;
+			const res = plan.segments[i];
+			if (!res || res.kind !== "exact" || res.folder.path !== token.path) {
+				return `"${token.name}" no longer exists where expected — please review the destination again.`;
+			}
+		}
+		return null;
 	}
 
 	/**
-	 * Re-parses/resolves `destinationText` against a fresh live folder snapshot and stores the
-	 * result in `destinationPlan`. Pure logic lives entirely in FolderDestination.ts -- this
-	 * method's only job is supplying the live vault snapshot/settings and applying the view's own
-	 * title-precedence rule (#1 manual edit always wins) on top of the plan's own noteTitle.
+	 * Re-derives `destinationPlan` from the composer's current committed tokens + active text
+	 * against a fresh live folder snapshot. Pure resolution logic lives entirely in
+	 * FolderDestination.ts -- this method's only job is supplying live vault state and running
+	 * the stale-existing-token check on top (addendum "Final-plan adapter": "call the existing
+	 * whole-plan resolver before creation... do not bypass final validation").
 	 */
 	private recomputeDestinationPlan(): void {
-		const fallbackTitle = proposeTitle(this.draftText);
-		const parsed = parseDestinationInstruction(this.destinationText);
-
-		if (isDestinationParseError(parsed)) {
-			this.folderSnapshot = null;
-			this.destinationExpandedChoice = null;
-			this.destinationPlan = {
-				status: "invalid",
-				segments: [],
-				folderPath: "",
-				noteTitle: this.titleDirty ? this.titleValue : fallbackTitle,
-				notePath: "",
-				titleSource: this.titleDirty ? "user-edited" : "capture-proposal",
-				missingFolders: [],
-				warnings: [parsed.reason],
-			};
-			if (!this.titleDirty) {
-				this.titleValue = fallbackTitle;
-				this.titleSource = "capture-proposal";
-			}
+		if (!this.composer) {
+			this.destinationPlan = null;
 			return;
 		}
+		const fallbackTitle = proposeTitle(this.draftText);
+		const parsed = this.composer.buildDestinationParse();
+		const snapshot = buildFolderSnapshot(this.plugin.app.vault.getAllFolders());
+		const plan = resolveFolderDestination(parsed, snapshot, new Map(), fallbackTitle, undefined, this.plugin.settings.excludePatterns);
 
-		this.folderSnapshot = buildFolderSnapshot(this.plugin.app.vault.getAllFolders());
-		const plan = resolveFolderDestination(parsed, this.folderSnapshot, this.destinationChoices, fallbackTitle, undefined, this.plugin.settings.excludePatterns);
-
-		if (this.titleDirty) {
-			const sanitized = sanitizeTitleForPath(this.titleValue);
-			const canBuildPath = plan.status === "ready" || plan.status === "root";
-			this.destinationPlan = {
-				...plan,
-				noteTitle: this.titleValue,
-				titleSource: "user-edited",
-				notePath: canBuildPath ? (plan.folderPath ? `${plan.folderPath}/${sanitized}.md` : `${sanitized}.md`) : "",
-			};
-		} else {
-			this.destinationPlan = plan;
-			this.titleValue = plan.noteTitle;
-			this.titleSource = plan.titleSource;
-		}
+		const stale = this.findStaleExistingToken(this.composer.getFolders(), plan);
+		this.destinationPlan = stale ? { ...plan, status: "invalid", warnings: [...plan.warnings, stale] } : plan;
 	}
 
-	/** Gates the primary "Create and jump" action -- see brief "Action and confirmation behavior"
-	 *  for the full disable-condition list. A blank/root plan keeps today's numeric-suffix root
-	 *  behavior (never blocked by a note-path collision here); a non-empty targeted plan blocks on
-	 *  any unresolved segment or a live note-path collision, checked fresh against the vault. */
+	/** Gates the primary "Create and jump" action. A blank/root plan keeps today's numeric-suffix
+	 *  root behavior (never blocked by a note-path collision here); a non-empty targeted plan
+	 *  blocks on any unresolved segment, a stale existing-token mismatch, or a live note-path
+	 *  collision, checked fresh against the vault. */
 	private canCreateFromPlan(): boolean {
 		const plan = this.destinationPlan;
 		if (!plan) return false;
@@ -489,8 +445,8 @@ export class QuickCaptureView extends ItemView {
 			this.sorted = true;
 			this.forceCreate = false;
 		} catch (e) {
-			console.error("AI Notes: search failed", e);
-			new Notice("AI Notes: something went wrong during search — see console for details.");
+			console.error("Amnesiarch: search failed", e);
+			new Notice("Amnesiarch: something went wrong during search — see console for details.");
 		} finally {
 			this.busy = false;
 			if (textareaAtStart) textareaAtStart.disabled = false;
@@ -570,9 +526,10 @@ export class QuickCaptureView extends ItemView {
 		return row;
 	}
 
-	/** Shared "Search instead" open behavior for all three cards -- reveals the existing bounded
-	 *  metadata picker in the shell's picker region without touching the draft or the automatic
-	 *  decision (`rankNoteMetadata()`/keyboard nav/confirm behavior are all unchanged). */
+	/** Shared "Search instead" open behavior for all three decision cards -- reveals the existing
+	 *  bounded metadata picker in the shell's picker region without touching the draft or the
+	 *  automatic decision (`rankNoteMetadata()`/keyboard nav/confirm behavior are all
+	 *  unchanged). */
 	private openNotePicker(footerEl: HTMLElement): void {
 		this.isNotePickerOpen = true;
 		this.notePickerQuery = "";
@@ -617,6 +574,9 @@ export class QuickCaptureView extends ItemView {
 			variant: "secondary",
 			onClick: () => {
 				this.forceCreate = true;
+				// sorted/lastResults deliberately survive (no resetDecision()) so the create
+				// card's "Back" action can restore this exact confident card without re-running
+				// search -- see renderCreateCard()'s Back button.
 				this.resetNotePicker();
 				this.renderFooter(footerEl);
 			},
@@ -675,10 +635,10 @@ export class QuickCaptureView extends ItemView {
 			onClick: () => {
 				this.forceCreate = true;
 				// Swapping to the create card replaces the active decision without going through
-				// resetDecision() (sorted/lastResults must survive so "Keep editing" from the
-				// create card can't be reached here -- Back doesn't exist anymore, but sorted must
-				// still hold in case forceCreate is ever cleared some other way) -- the picker
-				// itself still needs a fresh start under the new card, though.
+				// resetDecision() -- sorted/lastResults must survive so the create card's "Back"
+				// action can restore this exact ambiguous card (same candidates/order) without a
+				// new search pass. The picker itself still needs a fresh start under the new card,
+				// though.
 				this.resetNotePicker();
 				this.renderFooter(footerEl);
 			},
@@ -724,79 +684,70 @@ export class QuickCaptureView extends ItemView {
 		// same thing twice.
 		if (reason === "low-confidence") this.renderIndexingHint(shell.content);
 
-		// "Opening a create card for a draft initializes an empty destination field unless that
-		// unchanged draft already has preserved destination state" (brief "Input lifecycle") --
-		// this mount-time check is the only place destination/title state gets reset for a new
-		// draft; clearDestinationState() (draft edits, successful filing, disposal) is separate.
-		if (this.destinationDraftSnapshot !== this.draftText) {
-			this.destinationText = "";
-			this.destinationChoices = new Map();
-			this.titleValue = "";
-			this.titleDirty = false;
-			this.titleSource = "capture-proposal";
-			this.destinationExpandedChoice = null;
-			this.destinationDraftSnapshot = this.draftText;
+		// "Opening a create card for a draft initializes an empty composer unless that unchanged
+		// draft already has preserved composer state" (addendum "Preserve lifecycle rules") --
+		// this mount-time check is the only place composer state gets reset for a new draft;
+		// clearDestinationState() (draft edits, successful filing, disposal) is separate.
+		if (this.composerDraftSnapshot !== this.draftText) {
+			this.composer?.destroy();
+			this.composer = null;
+			this.composerDraftSnapshot = this.draftText;
 		}
-		this.recomputeDestinationPlan();
 
-		const input = shell.content.createEl("input", {
-			cls: "ai-quickcap-title-input",
-			attr: { type: "text", "aria-label": "New note title" },
-		});
-		setQuickCaptureTooltip(input, "New note title");
-		input.value = this.titleValue;
-		this.titleInputEl = input;
-
-		const destWrap = shell.content.createDiv({ cls: "ai-quickcap-destination" });
-		destWrap.createDiv({ cls: "ai-quickcap-destination-label", text: "Describe destination (optional)" });
-		const destInput = destWrap.createEl("textarea", {
-			cls: "ai-quickcap-destination-input",
-			attr: {
-				placeholder: "New folder Experiments under AI inside Learning",
-				"aria-label": "Describe destination",
-				spellcheck: "false",
-				rows: "2",
-			},
-		});
-		destInput.value = this.destinationText;
-		setQuickCaptureTooltip(destInput, 'Try "New folder Experiments under AI inside Learning" or "Learning/AI/Experiments"');
-		this.destinationTextareaEl = destInput;
-		destWrap.createDiv({
-			cls: "ai-quickcap-destination-hint",
-			text: 'Name existing parent folders and any folder to create. "/" also works.',
-		});
+		const composerWrap = shell.content.createDiv({ cls: "ai-quickcap-composer-wrap" });
+		composerWrap.createDiv({ cls: "ai-quickcap-composer-label", text: "Create at" });
 
 		const previewEl = shell.content.createDiv({ cls: "ai-quickcap-destination-preview" });
 
 		const createBtn = this.renderAction(shell.actionStart, {
 			label: "Create and jump",
 			variant: "primary",
-			onClick: () => void this.handleCreate(input, destInput, shell.card, footerEl),
+			onClick: () => void this.handleCreate(shell.card, footerEl),
 		});
 
-		// The destination textarea and title input are each created once and never recreated on
-		// every keystroke (same pattern as the Quick Capture draft textarea) -- only the bounded
-		// preview region below them re-renders, so focus/caret is never disturbed while typing.
+		// Back is shown only when create mode was actually entered from a confident/ambiguous
+		// card's "Create new note" action -- forceCreate is exclusively that user-entered flag
+		// (addendum "Required state"), never set for the automatic low-confidence/empty-index
+		// create states, so no extra origin tracking is needed. lastResults holds that prior
+		// card's exact candidates/order, so Back can restore it without a new search pass.
+		if (this.forceCreate && this.lastResults !== null) {
+			this.renderAction(shell.actionStart, {
+				label: "Back",
+				variant: "ghost",
+				onClick: () => {
+					this.forceCreate = false;
+					// Defensive only -- the create card never opens the picker itself, but this
+					// guarantees Back can never restore a card with a stale-open picker.
+					this.resetNotePicker();
+					this.renderFooter(footerEl);
+				},
+			});
+		}
+
 		const refreshPreviewOnly = () => {
 			this.recomputeDestinationPlan();
 			this.renderDestinationPreview(previewEl, footerEl);
 			createBtn.disabled = !this.canCreateFromPlan();
 		};
 
-		input.addEventListener("input", () => {
-			this.titleValue = input.value;
-			this.titleDirty = true;
-			this.titleSource = "user-edited";
-			refreshPreviewOnly();
-		});
+		if (!this.composer) {
+			this.composer = new ProgressiveDestinationComposer({
+				buildSnapshot: () => buildFolderSnapshot(this.plugin.app.vault.getAllFolders()),
+				onChange: refreshPreviewOnly,
+			});
+		} else {
+			// Card was re-rendered (e.g. "Search instead" toggled, re-entering create mode after
+			// Back, or a failed create attempt) without the draft changing -- re-point onChange at
+			// *this* render's closure (the previous one now refers to removed DOM -- see
+			// setOnChange()'s doc comment) rather than losing the composer's committed tokens/
+			// active text by recreating it.
+			this.composer.setOnChange(refreshPreviewOnly);
+		}
+		this.composer.mount(composerWrap);
 
-		destInput.addEventListener("input", () => {
-			this.destinationText = destInput.value;
-			// New destination text invalidates prior fuzzy/ambiguous/collision choices -- they
-			// were scoped to the previous parse's segment positions, not necessarily this one.
-			this.destinationChoices = new Map();
-			this.destinationExpandedChoice = null;
-			refreshPreviewOnly();
+		composerWrap.createDiv({
+			cls: "ai-quickcap-destination-hint",
+			text: "Press Tab to accept a folder suggestion.",
 		});
 
 		this.renderNotePickerBody(shell.picker, footerEl);
@@ -808,11 +759,11 @@ export class QuickCaptureView extends ItemView {
 				onClick: () => this.openNotePicker(footerEl),
 			});
 		}
-		// Matches the design prototype's onBackFromCreate exactly: always clears back to plain
-		// editing (sorted:false, forceCreate:false). Labeled "Keep editing" per the design
-		// change, not "Back" -- both this card's Back and the confident/ambiguous cards' Keep
-		// editing were always the same action (dismiss the decision, keep the draft). Destination/
-		// title state deliberately survives this -- see clearDestinationState()'s doc comment.
+
+		// Keep editing always clears the whole decision back to plain drafting (sorted:false,
+		// forceCreate:false, lastResults cleared) -- semantically distinct from Back, which
+		// restores the specific prior confident/ambiguous card instead. Composer state
+		// deliberately survives this -- see clearDestinationState()'s doc comment.
 		this.renderAction(shell.actionEnd, {
 			label: "Keep editing",
 			variant: "ghost",
@@ -822,78 +773,81 @@ export class QuickCaptureView extends ItemView {
 			},
 		});
 
-		this.renderDestinationPreview(previewEl, footerEl);
-		createBtn.disabled = !this.canCreateFromPlan();
+		refreshPreviewOnly();
 
 		// Don't steal focus from an already-open picker's own search input (renderNotePickerBody
 		// above already focused it) -- only claim it here on the card's own initial render.
-		if (!this.isNotePickerOpen) {
-			input.focus();
-			input.select();
-		}
+		if (!this.isNotePickerOpen) this.composer.focus();
 	}
 
 	/** Disables (or re-enables) every interactive control inside a decision card at once -- used
-	 *  while a create is in flight so a stray click on a correction/ambiguity/collision button,
-	 *  the picker, or "Keep editing" can't race the in-progress mutation (brief acceptance
-	 *  criterion 17). Simpler and more robust than threading an explicit button list through the
-	 *  create card's many dynamically-rendered destination sub-widgets. */
+	 *  while a create is in flight so a stray click on the composer, the picker, or "Keep
+	 *  editing" can't race the in-progress mutation. Simpler and more robust than threading an
+	 *  explicit button list through the create card's dynamically-rendered sub-widgets. */
 	private setCardControlsDisabled(card: HTMLElement, disabled: boolean): void {
 		card.querySelectorAll("button, input, textarea").forEach((el) => {
 			(el as HTMLButtonElement | HTMLInputElement | HTMLTextAreaElement).disabled = disabled;
 		});
+		this.composer?.setDisabled(disabled);
 	}
 
-	/** Renders the live destination preview: the resolved-so-far folder/note tree, plus whichever
-	 *  correction/ambiguity/collision widget (if any) is blocking full resolution. Rebuilds
-	 *  `previewEl` from scratch on every call -- cheap, and it never owns focus itself. */
+	/** Renders the live destination preview from the composer's committed tokens plus whichever
+	 *  collision/stale-plan message (if any) is blocking creation. Rebuilds `previewEl` from
+	 *  scratch on every call -- cheap, and it never owns focus itself (the composer owns its own
+	 *  input; ambiguity/fuzzy correction render inline inside the composer, not here). */
 	private renderDestinationPreview(previewEl: HTMLElement, footerEl: HTMLElement): void {
 		previewEl.empty();
 		const plan = this.destinationPlan;
-		if (!plan) return;
+		const composer = this.composer;
+		if (!plan || !composer) return;
 
 		if (plan.status === "invalid") {
 			previewEl.createDiv({
 				cls: "ai-quickcap-destination-error",
-				text: plan.warnings[0] ?? "That destination couldn't be understood.",
+				text: plan.warnings.at(-1) ?? "That destination couldn't be understood.",
+			});
+			return;
+		}
+		if (plan.status === "ambiguous" || plan.status === "needs-confirmation" || plan.status === "collision") {
+			// A revalidation-time ambiguity/fuzzy/folder-collision result here means something
+			// changed in the vault between typing and now (a sibling was added/renamed, or a
+			// folder was created concurrently with the exact name a composer token asked to
+			// create) -- rare, and never silently resolved; send the user back to the composer
+			// to re-type that segment. (Distinct from a *note*-path collision on an otherwise
+			// "ready" plan, handled separately below via renderDestinationNoteCollision().)
+			previewEl.createDiv({
+				cls: "ai-quickcap-destination-error",
+				text: "The destination changed since you typed it — reopen the last folder to review it.",
 			});
 			return;
 		}
 
 		const tree = previewEl.createDiv({ cls: "ai-quickcap-destination-tree" });
 		tree.createDiv({ cls: "ai-quickcap-destination-tree-label", text: "Destination" });
-		if (plan.segments.length === 0) {
+		const folders = composer.getFolders();
+		if (folders.length === 0) {
 			const rootRow = tree.createDiv({ cls: "ai-quickcap-destination-tree-row", attr: { style: "--qc-depth:0" } });
 			rootRow.createSpan({ cls: "ai-quickcap-destination-tree-name", text: "Vault root" });
 			rootRow.createSpan({ cls: "ai-quickcap-destination-tree-tag", text: "Existing" });
 		}
-		plan.segments.forEach((seg, depth) => this.renderDestinationTreeRow(tree, seg, depth));
+		folders.forEach((token, depth) => {
+			const row = tree.createDiv({ cls: "ai-quickcap-destination-tree-row", attr: { style: `--qc-depth:${depth}` } });
+			row.createSpan({ cls: "ai-quickcap-destination-tree-name", text: token.name });
+			const tag =
+				token.disposition === "create"
+					? "New folder"
+					: token.correctedFrom
+						? `Existing · corrected from "${token.correctedFrom}"`
+						: "Existing";
+			row.createSpan({ cls: "ai-quickcap-destination-tree-tag", text: tag });
+		});
 
-		if (plan.status === "needs-confirmation") {
-			const last = plan.segments.at(-1);
-			if (last?.kind === "fuzzy") this.renderDestinationCorrection(previewEl, footerEl, last, plan.segments.length - 1);
-			return;
-		}
-		if (plan.status === "ambiguous") {
-			const last = plan.segments.at(-1);
-			if (last?.kind === "ambiguous") this.renderDestinationAmbiguous(previewEl, footerEl, last, plan.segments.length - 1);
-			return;
-		}
-		if (plan.status === "collision") {
-			const last = plan.segments.at(-1);
-			if (last?.kind === "collision") this.renderDestinationCollision(previewEl, footerEl, last, plan.segments.length - 1);
-			return;
-		}
-
-		// status is "root" or "ready" here -- both are visibly-complete plans.
-		const noteRow = tree.createDiv({ cls: "ai-quickcap-destination-tree-row", attr: { style: `--qc-depth:${plan.segments.length}` } });
+		// status is "root" or "ready" here -- both are visibly-complete plans (a folder-segment
+		// "collision" status was already handled above; a note-path collision is checked fresh
+		// against the vault below, same as canCreateFromPlan()).
+		const noteRow = tree.createDiv({ cls: "ai-quickcap-destination-tree-row", attr: { style: `--qc-depth:${folders.length}` } });
 		noteRow.createSpan({ cls: "ai-quickcap-destination-tree-name", text: `${sanitizeTitleForPath(plan.noteTitle)}.md` });
-		const titleLabel =
-			plan.titleSource === "user-edited"
-				? "title edited by you"
-				: plan.titleSource === "destination"
-					? "title from destination description"
-					: "title inferred from capture";
+		const titleLabel = plan.titleSource === "destination" ? "title you typed" : "title inferred from capture";
 		noteRow.createSpan({ cls: "ai-quickcap-destination-tree-tag", text: `New note · ${titleLabel}` });
 
 		if (plan.status === "ready" && this.plugin.app.vault.getAbstractFileByPath(plan.notePath)) {
@@ -908,195 +862,11 @@ export class QuickCaptureView extends ItemView {
 		});
 	}
 
-	private renderDestinationTreeRow(container: HTMLElement, seg: SegmentResolution, depth: number): void {
-		const row = container.createDiv({ cls: "ai-quickcap-destination-tree-row", attr: { style: `--qc-depth:${depth}` } });
-		let name: string;
-		let tag: string;
-		switch (seg.kind) {
-			case "exact":
-				name = seg.folder.name;
-				tag = "Existing";
-				break;
-			case "fuzzy":
-				name = seg.acknowledged ? seg.folder.name : seg.requested;
-				tag = seg.acknowledged ? `Existing · corrected from "${seg.requested}"` : "Needs confirmation";
-				break;
-			case "ambiguous":
-				name = seg.requested;
-				tag = "Ambiguous";
-				break;
-			case "create":
-				name = seg.requested;
-				tag = "New folder";
-				break;
-			case "collision":
-				name = seg.requested;
-				tag = "Existing folder with this name";
-				break;
-			case "invalid":
-				name = seg.requested;
-				tag = seg.reason;
-				break;
-		}
-		row.createSpan({ cls: "ai-quickcap-destination-tree-name", text: name });
-		row.createSpan({ cls: "ai-quickcap-destination-tree-tag", text: tag });
-	}
-
-	/** Parent path of the segment at `index`, derived from what the previous segment actually
-	 *  resolved to -- used to build the same segmentChoiceKey() the resolver used, so a choice
-	 *  recorded here is found again on the next resolveFolderDestination() call. */
-	private parentPathForSegmentIndex(index: number): string {
-		if (!this.destinationPlan || index === 0) return "";
-		const prev = this.destinationPlan.segments[index - 1];
-		if (!prev) return "";
-		if (prev.kind === "exact") return prev.folder.path;
-		if (prev.kind === "fuzzy" && prev.acknowledged) return prev.folder.path;
-		if (prev.kind === "create") return prev.path;
-		return "";
-	}
-
-	/** "'Lerning' may mean 'Learning'" -- the fuzzy-correction widget (brief "Fuzzy correction
-	 *  display"). Every path here goes through `this.destinationChoices` and a full
-	 *  recompute/re-render; nothing here silently rewrites destinationText itself. */
-	private renderDestinationCorrection(container: HTMLElement, footerEl: HTMLElement, seg: Extract<SegmentResolution, { kind: "fuzzy" }>, index: number): void {
-		const parentPath = this.parentPathForSegmentIndex(index);
-		const key = segmentChoiceKey(index, parentPath, seg.requested);
-		const box = container.createDiv({ cls: "ai-quickcap-destination-correction" });
-		box.createDiv({ cls: "ai-quickcap-destination-correction-text", text: `"${seg.requested}" may mean "${seg.folder.name}"` });
-		const actions = box.createDiv({ cls: "ai-quickcap-destination-correction-actions" });
-
-		const useBtn = actions.createEl("button", { cls: "ai-quickcap-btn ai-quickcap-btn--secondary", text: `Use ${seg.folder.name}`, attr: { type: "button" } });
-		useBtn.addEventListener("click", () => {
-			this.destinationChoices.set(key, { segmentKey: key, resolution: { kind: "existing", path: seg.folder.path } });
-			this.renderFooter(footerEl);
-		});
-
-		const chooseBtn = actions.createEl("button", { cls: "ai-quickcap-btn ai-quickcap-btn--ghost", text: "Choose another folder", attr: { type: "button" } });
-		chooseBtn.addEventListener("click", () => {
-			this.destinationExpandedChoice = this.destinationExpandedChoice === key ? null : key;
-			this.renderFooter(footerEl);
-		});
-
-		const keepBtn = actions.createEl("button", {
-			cls: "ai-quickcap-btn ai-quickcap-btn--ghost",
-			text: `Keep "${seg.requested}" and create it`,
-			attr: { type: "button" },
-		});
-		keepBtn.addEventListener("click", () => {
-			this.destinationChoices.set(key, { segmentKey: key, resolution: { kind: "create", name: seg.requested } });
-			this.renderFooter(footerEl);
-		});
-
-		if (this.destinationExpandedChoice === key) {
-			this.renderDestinationSiblingPicker(box, footerEl, parentPath, key, seg.folder.path);
-		}
-	}
-
-	/** Bounded (never whole-vault) list of the current segment's other siblings, for "Choose
-	 *  another folder" -- brief: "filtered/bounded for large folders; it must not render the
-	 *  entire vault." */
-	private renderDestinationSiblingPicker(container: HTMLElement, footerEl: HTMLElement, parentPath: string, key: string, excludePath: string): void {
-		const siblings = (this.folderSnapshot?.childrenByParent.get(parentPath) ?? []).filter((f: FolderInfo) => f.path !== excludePath);
-		const box = container.createDiv({ cls: "ai-quickcap-destination-sibling-picker" });
-		if (siblings.length === 0) {
-			box.createDiv({ cls: "ai-quickcap-destination-hint", text: "No other folders here." });
-			return;
-		}
-		const bounded = siblings.slice(0, 8);
-		bounded.forEach((f: FolderInfo) => {
-			const btn = box.createEl("button", { cls: "ai-quickcap-destination-sibling-btn", text: f.name, attr: { type: "button" } });
-			btn.addEventListener("click", () => {
-				this.destinationChoices.set(key, { segmentKey: key, resolution: { kind: "existing", path: f.path } });
-				this.destinationExpandedChoice = null;
-				this.renderFooter(footerEl);
-			});
-		});
-		if (siblings.length > bounded.length) {
-			box.createDiv({
-				cls: "ai-quickcap-destination-hint",
-				text: `+${siblings.length - bounded.length} more — refine your destination text to narrow this down.`,
-			});
-		}
-	}
-
-	/** "More than one folder could match…" -- offers at most the resolver's own bounded choice
-	 *  set plus an explicit "create new folder" escape hatch (brief "Ambiguity handling"). */
-	private renderDestinationAmbiguous(container: HTMLElement, footerEl: HTMLElement, seg: Extract<SegmentResolution, { kind: "ambiguous" }>, index: number): void {
-		const box = container.createDiv({ cls: "ai-quickcap-destination-ambiguous" });
-		const parentLabel = seg.parentPath || "vault root";
-		box.createDiv({
-			cls: "ai-quickcap-destination-ambiguous-text",
-			text: `More than one folder could match "${seg.requested}" under ${parentLabel}. Choose where this should go.`,
-		});
-		const key = segmentChoiceKey(index, seg.parentPath, seg.requested);
-		const actions = box.createDiv({ cls: "ai-quickcap-destination-ambiguous-actions" });
-
-		seg.choices.forEach((choice: FolderInfo) => {
-			const btn = actions.createEl("button", { cls: "ai-quickcap-btn ai-quickcap-btn--secondary", text: choice.name, attr: { type: "button" } });
-			setQuickCaptureTooltip(btn, choice.path);
-			btn.addEventListener("click", () => {
-				this.destinationChoices.set(key, { segmentKey: key, resolution: { kind: "existing", path: choice.path } });
-				this.renderFooter(footerEl);
-			});
-		});
-
-		const createBtn = actions.createEl("button", {
-			cls: "ai-quickcap-btn ai-quickcap-btn--ghost",
-			text: `Create new folder "${seg.requested}"`,
-			attr: { type: "button" },
-		});
-		createBtn.addEventListener("click", () => {
-			this.destinationChoices.set(key, { segmentKey: key, resolution: { kind: "create", name: seg.requested } });
-			this.renderFooter(footerEl);
-		});
-
-		const editBtn = actions.createEl("button", { cls: "ai-quickcap-btn ai-quickcap-btn--ghost", text: "Edit destination", attr: { type: "button" } });
-		editBtn.addEventListener("click", () => this.destinationTextareaEl?.focus());
-	}
-
-	/** "Existing folder with this name" -- the requested-new-folder-leaf collision state (brief
-	 *  "New-folder and collision behavior"). Never silently substitutes or creates a duplicate. */
-	private renderDestinationCollision(container: HTMLElement, footerEl: HTMLElement, seg: Extract<SegmentResolution, { kind: "collision" }>, index: number): void {
-		const parentPath = this.parentPathForSegmentIndex(index);
-		const key = segmentChoiceKey(index, parentPath, seg.requested);
-		const box = container.createDiv({ cls: "ai-quickcap-destination-collision" });
-		box.createDiv({ cls: "ai-quickcap-destination-collision-text", text: "Existing folder with this name" });
-		const actions = box.createDiv({ cls: "ai-quickcap-destination-collision-actions" });
-
-		const useBtn = actions.createEl("button", { cls: "ai-quickcap-btn ai-quickcap-btn--secondary", text: "Use existing folder", attr: { type: "button" } });
-		useBtn.addEventListener("click", () => {
-			this.destinationChoices.set(key, { segmentKey: key, resolution: { kind: "existing", path: seg.folder.path } });
-			this.renderFooter(footerEl);
-		});
-
-		const renameRow = box.createDiv({ cls: "ai-quickcap-destination-collision-rename" });
-		const renameInput = renameRow.createEl("input", {
-			cls: "ai-quickcap-destination-rename-input",
-			attr: { type: "text", "aria-label": "Rename the new folder" },
-		});
-		renameInput.value = seg.requested;
-		const renameBtn = renameRow.createEl("button", { cls: "ai-quickcap-btn ai-quickcap-btn--secondary", text: "Create with this name", attr: { type: "button" } });
-		renameBtn.addEventListener("click", () => {
-			const name = renameInput.value.trim();
-			if (!name) {
-				renameInput.focus();
-				return;
-			}
-			this.destinationChoices.set(key, { segmentKey: key, resolution: { kind: "create", name } });
-			this.renderFooter(footerEl);
-		});
-
-		const cancelBtn = actions.createEl("button", { cls: "ai-quickcap-btn ai-quickcap-btn--ghost", text: "Cancel", attr: { type: "button" } });
-		cancelBtn.addEventListener("click", () => {
-			this.destinationText = "";
-			this.destinationChoices = new Map();
-			this.renderFooter(footerEl);
-		});
-	}
-
-	/** The note-path-level collision state (distinct from a folder collision above) -- brief: "A
-	 *  target note-path collision in a non-empty destination plan must not silently append 1, 2,
-	 *  etc. Offer Open existing note, Change title, and Cancel." */
+	/** The note-path-level collision state -- "A target note-path collision in a non-empty
+	 *  destination plan must not silently append 1, 2, etc." Offers Open existing note and
+	 *  edit-the-title (via the composer's own active input); no Cancel that clears the
+	 *  destination back to root (progressive-destination-composer-addendum.md "Collision
+	 *  behavior": "Neither action may silently switch the plan to vault root"). */
 	private renderDestinationNoteCollision(container: HTMLElement, footerEl: HTMLElement, notePath: string): void {
 		const box = container.createDiv({ cls: "ai-quickcap-destination-collision" });
 		box.createDiv({ cls: "ai-quickcap-destination-collision-text", text: `A note already exists at "${notePath}"` });
@@ -1112,17 +882,13 @@ export class QuickCaptureView extends ItemView {
 			}
 		});
 
-		const changeTitleBtn = actions.createEl("button", { cls: "ai-quickcap-btn ai-quickcap-btn--ghost", text: "Change title", attr: { type: "button" } });
+		const changeTitleBtn = actions.createEl("button", { cls: "ai-quickcap-btn ai-quickcap-btn--ghost", text: "Edit title", attr: { type: "button" } });
 		changeTitleBtn.addEventListener("click", () => {
-			this.titleInputEl?.focus();
-			this.titleInputEl?.select();
-		});
-
-		const cancelBtn = actions.createEl("button", { cls: "ai-quickcap-btn ai-quickcap-btn--ghost", text: "Cancel", attr: { type: "button" } });
-		cancelBtn.addEventListener("click", () => {
-			this.destinationText = "";
-			this.destinationChoices = new Map();
-			this.renderFooter(footerEl);
+			const composer = this.composer;
+			if (!composer) return;
+			const current = composer.getActiveText().trim();
+			if (!current) composer.setActiveText(proposeTitle(this.draftText));
+			else composer.focus();
 		});
 	}
 
@@ -1154,8 +920,8 @@ export class QuickCaptureView extends ItemView {
 			this.activeNoteId = jump ? path : QUICK_CAPTURE_ID;
 			this.render();
 		} catch (e) {
-			console.error("AI Notes: append failed", e);
-			new Notice("AI Notes: couldn't add to the note — see console for details.");
+			console.error("Amnesiarch: append failed", e);
+			new Notice("Amnesiarch: couldn't add to the note — see console for details.");
 			buttons.forEach((b) => (b.disabled = false));
 			if (textareaAtStart) textareaAtStart.disabled = false;
 		} finally {
@@ -1172,15 +938,22 @@ export class QuickCaptureView extends ItemView {
 	 * setCardControlsDisabled()) since the destination sub-widgets are too dynamic to track as an
 	 * explicit button list the way handleAdd's `buttons` array does.
 	 */
-	private async handleCreate(input: HTMLInputElement, destTextarea: HTMLTextAreaElement, card: HTMLElement, footerEl: HTMLElement): Promise<void> {
+	private async handleCreate(card: HTMLElement, footerEl: HTMLElement): Promise<void> {
 		if (this.busy) return;
+		const composer = this.composer;
+		if (!composer) return;
+		// Re-preflight against live vault state immediately before mutation -- refresh the
+		// composer's cached snapshot and recompute the plan (which itself re-checks every
+		// existing-disposition token) right before creating anything (addendum "Performance":
+		// "Refresh the snapshot... before final creation").
+		composer.refreshSnapshot();
+		this.recomputeDestinationPlan();
 		const plan = this.destinationPlan;
-		if (!plan || !this.canCreateFromPlan()) return;
-		const title = input.value.trim();
-		if (!title) {
-			input.focus();
+		if (!plan || !this.canCreateFromPlan()) {
+			this.renderFooter(footerEl);
 			return;
 		}
+		const title = plan.noteTitle;
 		this.busy = true;
 		const textToFile = this.draftText;
 		const textareaAtStart = this.draftTextarea;
@@ -1208,15 +981,15 @@ export class QuickCaptureView extends ItemView {
 			this.render();
 		} catch (e) {
 			if (e instanceof DestinationCreateError) {
-				console.error("AI Notes: failed to create note at destination", e, "createdFolders:", e.createdFolders);
+				console.error("Amnesiarch: failed to create note at destination", e, "createdFolders:", e.createdFolders);
 				const foldersNote =
 					e.createdFolders.length > 0
 						? ` These folder(s) were already created and were left in place: ${e.createdFolders.join(", ")}.`
 						: "";
-				new Notice(`AI Notes: ${e.message}${foldersNote}`);
+				new Notice(`Amnesiarch: ${e.message}${foldersNote}`);
 			} else {
-				console.error("AI Notes: failed to create note", e);
-				new Notice("AI Notes: couldn't create the note — see console for details.");
+				console.error("Amnesiarch: failed to create note", e);
+				new Notice("Amnesiarch: couldn't create the note — see console for details.");
 			}
 			// Never clear the draft, destination state, or title on a failed create (brief
 			// "Failure handling") -- re-rendering the (unchanged) create card both re-enables
@@ -1403,10 +1176,10 @@ export class QuickCaptureView extends ItemView {
 		try {
 			content = await this.plugin.app.vault.cachedRead(file);
 		} catch (e) {
-			console.error("AI Notes: failed to read note", e);
+			console.error("Amnesiarch: failed to read note", e);
 			if (this.activeNoteId !== path) return; // navigated elsewhere while the read was in flight
 			body.createDiv({ cls: "ai-quickcap-empty-note", text: "Couldn't load this note." });
-			new Notice("AI Notes: couldn't load this note — see console for details.");
+			new Notice("Amnesiarch: couldn't load this note — see console for details.");
 			return;
 		}
 		// The user may have navigated elsewhere while this read was in flight.

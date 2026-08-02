@@ -10,7 +10,7 @@ import { App, TFile } from "obsidian";
 export async function appendToNote(app: App, path: string, text: string): Promise<void> {
 	const file = app.vault.getAbstractFileByPath(path);
 	if (!(file instanceof TFile)) {
-		throw new Error(`AI Notes: not a file: ${path}`);
+		throw new Error(`Amnesiarch: not a file: ${path}`);
 	}
 	await app.vault.process(file, (data) => {
 		const sep = data.length === 0 || data.endsWith("\n") ? "" : "\n";

@@ -39,7 +39,7 @@ function forceBrowserLikeProcess(): () => void {
 				}
 			});
 		} catch (e) {
-			console.warn(`AI Notes: could not override process.${key}; embedding may fail`, e);
+			console.warn(`Amnesiarch: could not override process.${key}; embedding may fail`, e);
 		}
 	};
 

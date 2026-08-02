@@ -1,6 +1,6 @@
-# AI Notes
+# Amnesiarch
 
-An "AI Quick Capture" view for Obsidian that solves one specific problem: you have a fleeting thought ("Feature XYZ is also a good idea for project ABC"), and the note it belongs in has a filename that doesn't match how you'd say that out loud. Write it into a plain Quick Capture note, hit "Sort this note", and it proposes where the thought belongs — append to a confident match, pick from a few plausible notes, or create a new one — then jumps you to the result.
+The intelligence layer for your notes. You have a fleeting thought ("Feature XYZ is also a good idea for project ABC"), and the note it belongs in has a filename that doesn't match how you'd say that out loud. Write it into a plain Quick Capture note, hit "Sort this note", and Amnesiarch proposes where the thought belongs — append to a confident match, pick from a few plausible notes, or create a new one — then jumps you to the result.
 
 ## How it works
 
@@ -14,13 +14,13 @@ npm run dev      # esbuild watch, emits main.js
 npm run build    # production build
 ```
 
-Load into a vault for testing by symlinking this directory into `.obsidian/plugins/ai-notes/`:
+Load into a vault for testing by symlinking this directory into `.obsidian/plugins/amnesiarch/`:
 
 ```bash
-ln -s /path/to/AI-notes "<vault>/.obsidian/plugins/ai-notes"
+ln -s /path/to/amnesiarch "<vault>/.obsidian/plugins/amnesiarch"
 ```
 
-Then enable "AI Notes" under Settings → Community plugins in Obsidian.
+Then enable "Amnesiarch" under Settings → Community plugins in Obsidian.
 
 ## License
 

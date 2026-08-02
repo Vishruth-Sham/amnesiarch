@@ -325,51 +325,97 @@ button.ai-quickcap-match-row:disabled {
 	color: rgba(255, 255, 255, 0.55);
 }
 
-/* create-new-note title input */
+/* ---------- "Create at" progressive destination composer
+   (progressive-destination-composer-addendum.md) ---------- */
 
-.ai-quickcap-title-input {
-	width: 100%;
-	background: rgba(0, 0, 0, 0.25);
-	border: 1px solid rgba(255, 255, 255, 0.1);
-	border-radius: var(--qc-radius-chip);
-	padding: 9px 12px;
-	font-size: 12.5px;
-	color: var(--qc-text-primary);
-	outline: none;
-	box-shadow: none;
-	font-family: inherit;
-}
-
-.ai-quickcap-title-input:focus-visible {
-	outline: none;
-	border-color: var(--qc-accent);
-}
-
-/* ---------- "Describe destination" (research/implementation-handoffs/
-   quick-capture-folder-destination.md) ---------- */
-
-.ai-quickcap-destination {
+.ai-quickcap-composer-wrap {
 	display: flex;
 	flex-direction: column;
 	gap: 4px;
 }
 
-.ai-quickcap-destination-label {
+.ai-quickcap-composer-label {
 	color: rgba(255, 255, 255, 0.45);
 	font-size: 11px;
 	font-weight: 600;
 }
 
-.ai-quickcap-destination-input {
+.ai-quickcap-composer-field {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 2px;
 	width: 100%;
-	resize: vertical;
-	min-height: 44px;
 	background: rgba(0, 0, 0, 0.25);
 	border: 1px solid rgba(255, 255, 255, 0.1);
 	border-radius: var(--qc-radius-chip);
-	padding: 8px 12px;
+	padding: 6px 8px;
+}
+
+.ai-quickcap-composer-field:focus-within {
+	border-color: var(--qc-accent);
+	box-shadow: 0 0 0 1.5px var(--qc-accent-ring);
+}
+
+/* Committed folder token -- a real <button> (click to reopen for editing), distinguished from a
+   still-to-be-created folder by more than color alone: the "new" text badge below. */
+.ai-quickcap-composer-token {
+	appearance: none;
+	-webkit-appearance: none;
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+	font-family: inherit;
+	background: rgba(255, 255, 255, 0.08);
+	border: 1px solid transparent;
+	border-radius: var(--qc-radius-chip);
+	padding: 3px 8px;
+	font-size: 12px;
+	color: var(--qc-text-primary);
+	cursor: pointer;
+	transition: border-color 0.15s ease;
+}
+
+.ai-quickcap-composer-token.is-new {
+	background: var(--qc-accent-soft);
+}
+
+.ai-quickcap-composer-token:hover {
+	border-color: var(--qc-accent-ring);
+}
+
+.ai-quickcap-composer-token:focus-visible {
+	outline: none;
+	border-color: var(--qc-accent);
+	box-shadow: 0 0 0 2px var(--qc-focus-ring);
+}
+
+.ai-quickcap-composer-token:disabled {
+	opacity: 0.55;
+	cursor: not-allowed;
+}
+
+.ai-quickcap-composer-token-badge {
+	font-size: 9.5px;
+	font-weight: 700;
+	text-transform: uppercase;
+	letter-spacing: 0.03em;
+	color: var(--qc-accent);
+}
+
+.ai-quickcap-composer-sep {
+	color: rgba(255, 255, 255, 0.3);
+	font-size: 12px;
+	padding: 0 1px;
+}
+
+.ai-quickcap-composer-input {
+	flex: 1;
+	min-width: 80px;
+	background: transparent;
+	border: none;
+	padding: 3px 4px;
 	font-size: 12.5px;
-	line-height: 1.5;
 	color: var(--qc-text-primary);
 	caret-color: var(--qc-accent);
 	outline: none;
@@ -377,20 +423,48 @@ button.ai-quickcap-match-row:disabled {
 	font-family: inherit;
 }
 
-.ai-quickcap-destination-input::placeholder {
+.ai-quickcap-composer-input::placeholder {
 	color: rgba(255, 255, 255, 0.3);
 }
 
-.ai-quickcap-destination-input:focus-visible {
-	outline: none;
-	border-color: var(--qc-accent);
-	box-shadow: 0 0 0 1.5px var(--qc-accent-ring);
-}
-
-.ai-quickcap-destination-input:disabled,
-.ai-quickcap-destination-rename-input:disabled {
+.ai-quickcap-composer-input:disabled {
 	opacity: 0.55;
 	cursor: not-allowed;
+}
+
+/* Inline suggestion / ambiguity guidance beneath the field -- never a sibling list or a
+   "Choose another folder" surface (addendum "Exact UI removals"). */
+.ai-quickcap-composer-message {
+	min-height: 0;
+}
+
+.ai-quickcap-composer-message:empty {
+	display: none;
+}
+
+.ai-quickcap-composer-hint {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 8px;
+	margin-top: 6px;
+	color: rgba(255, 255, 255, 0.55);
+	font-size: 11px;
+	line-height: 1.5;
+}
+
+.ai-quickcap-composer-hint-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+	margin-top: 4px;
+}
+
+.ai-quickcap-composer-error {
+	margin-top: 6px;
+	color: oklch(72% 0.16 25);
+	font-size: 11px;
+	line-height: 1.5;
 }
 
 .ai-quickcap-destination-hint {
@@ -412,7 +486,7 @@ button.ai-quickcap-match-row:disabled {
 }
 
 /* Compact folder/note tree -- indentation is driven entirely by the row's own --qc-depth custom
-   property so renderDestinationTreeRow() never needs to know about pixel values. */
+   property so the tree-row renderer never needs to know about pixel values. */
 .ai-quickcap-destination-tree {
 	display: flex;
 	flex-direction: column;
@@ -461,10 +535,8 @@ button.ai-quickcap-match-row:disabled {
 	font-size: 10.5px;
 }
 
-/* Correction / ambiguity / collision widgets -- each is a review state that must be resolved or
-   acknowledged before the primary Create action re-enables (see canCreateFromPlan()). */
-.ai-quickcap-destination-correction,
-.ai-quickcap-destination-ambiguous,
+/* Note-path collision widget -- the only remaining review state blocking Create; no Cancel that
+   clears the destination back to root (addendum "Collision behavior"). */
 .ai-quickcap-destination-collision {
 	padding: 10px 12px;
 	background: var(--qc-accent-soft);
@@ -475,8 +547,6 @@ button.ai-quickcap-match-row:disabled {
 	gap: 8px;
 }
 
-.ai-quickcap-destination-correction-text,
-.ai-quickcap-destination-ambiguous-text,
 .ai-quickcap-destination-collision-text {
 	color: var(--qc-text-primary);
 	font-size: 12px;
@@ -484,71 +554,10 @@ button.ai-quickcap-match-row:disabled {
 	overflow-wrap: anywhere;
 }
 
-.ai-quickcap-destination-correction-actions,
-.ai-quickcap-destination-ambiguous-actions,
 .ai-quickcap-destination-collision-actions {
 	display: flex;
 	flex-wrap: wrap;
 	gap: 6px;
-}
-
-.ai-quickcap-destination-sibling-picker {
-	margin-top: 4px;
-	display: flex;
-	flex-direction: column;
-	gap: 4px;
-	max-height: 160px;
-	overflow-y: auto;
-}
-
-.ai-quickcap-destination-sibling-btn {
-	appearance: none;
-	-webkit-appearance: none;
-	text-align: left;
-	font-family: inherit;
-	background: rgba(0, 0, 0, 0.2);
-	border: 1px solid transparent;
-	border-radius: var(--qc-radius-chip);
-	padding: 6px 10px;
-	font-size: 11.5px;
-	color: var(--qc-text-body);
-	cursor: pointer;
-	transition: border-color 0.15s ease;
-}
-
-.ai-quickcap-destination-sibling-btn:hover {
-	border-color: var(--qc-accent-ring);
-}
-
-.ai-quickcap-destination-sibling-btn:focus-visible {
-	outline: none;
-	border-color: var(--qc-accent);
-	box-shadow: 0 0 0 2px var(--qc-focus-ring);
-}
-
-.ai-quickcap-destination-collision-rename {
-	display: flex;
-	gap: 6px;
-	flex-wrap: wrap;
-}
-
-.ai-quickcap-destination-rename-input {
-	flex: 1;
-	min-width: 120px;
-	background: rgba(0, 0, 0, 0.25);
-	border: 1px solid rgba(255, 255, 255, 0.1);
-	border-radius: var(--qc-radius-chip);
-	padding: 7px 10px;
-	font-size: 12px;
-	color: var(--qc-text-primary);
-	outline: none;
-	box-shadow: none;
-	font-family: inherit;
-}
-
-.ai-quickcap-destination-rename-input:focus-visible {
-	outline: none;
-	border-color: var(--qc-accent);
 }
 
 /* ---------- shared decision-shell divider + action row ---------- */

@@ -1,8 +1,8 @@
-export const VIEW_TYPE_AI_NOTES_QUICK_CAPTURE = "ai-notes-quick-capture-view";
+export const VIEW_TYPE_AMNESIARCH_QUICK_CAPTURE = "amnesiarch-quick-capture-view";
 /** Pre-redesign chat-panel view type (ChatView, removed). A saved workspace layout from
  *  before this rename can still reference this string; detach any leaf still using it on load
  *  rather than leaving Obsidian to render a broken "missing view" placeholder for it. */
-export const LEGACY_VIEW_TYPE_AI_NOTES_CHAT = "ai-notes-chat-view";
+export const LEGACY_VIEW_TYPE_AMNESIARCH_CHAT = "amnesiarch-chat-view";
 
 export const MODEL_ID = "Xenova/all-MiniLM-L6-v2";
 export const EMBEDDING_DIM = 384;

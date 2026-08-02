@@ -95,7 +95,7 @@ export class VaultIndexer {
 	}
 
 	/** Force every markdown file to be reconsidered from scratch -- exposed as the
-	 *  "AI Notes: Rebuild index" command. A manual escape hatch (e.g. to immediately sweep out
+	 *  "Amnesiarch: Rebuild index" command. A manual escape hatch (e.g. to immediately sweep out
 	 *  notes after tightening exclude patterns, rather than waiting for them to next change). */
 	async rebuildAll(): Promise<void> {
 		for (const file of this.app.vault.getMarkdownFiles()) {
@@ -135,7 +135,7 @@ export class VaultIndexer {
 					try {
 						await this.indexFile(file);
 					} catch (e) {
-						console.error(`AI Notes: failed to index ${path}`, e);
+						console.error(`Amnesiarch: failed to index ${path}`, e);
 					}
 				}
 			}
