@@ -1,5 +1,7 @@
 # Amnesiarch
 
+**[amnesiarch.vercel.app](https://amnesiarch.vercel.app/)**
+
 The intelligence layer for your notes. You have a fleeting thought ("Feature XYZ is also a good idea for project ABC"), and the note it belongs in has a filename that doesn't match how you'd say that out loud. Write it into a plain Quick Capture note, hit "Sort this note", and Amnesiarch proposes where the thought belongs — append to a confident match, pick from a few plausible notes, or create a new one — then jumps you to the result.
 
 ## How it works
