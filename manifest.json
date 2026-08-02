@@ -1,9 +1,9 @@
 {
-	"id": "ai-notes",
-	"name": "AI Notes",
+	"id": "amnesiarch",
+	"name": "Amnesiarch",
 	"version": "0.1.0",
 	"minAppVersion": "1.5.0",
-	"description": "Chat-style search & append: find the right note by meaning, folder, or tag, preview the change, and append with one click.",
+	"description": "Quick Capture for fleeting thoughts: Amnesiarch finds the right note via semantic and structural search, or creates a new one with a folder-aware destination composer.",
 	"author": "Vishruth Sham",
 	"authorUrl": "",
 	"isDesktopOnly": true

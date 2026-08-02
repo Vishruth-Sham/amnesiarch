@@ -34,7 +34,7 @@ export class NoteCache {
 			}
 			this.entries = new Map(Object.entries(parsed.entries));
 		} catch (e) {
-			console.error("AI Notes: failed to read notes cache, starting fresh", e);
+			console.error("Amnesiarch: failed to read notes cache, starting fresh", e);
 			this.entries.clear();
 		}
 		this.generation++;

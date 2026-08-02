@@ -80,16 +80,20 @@ export interface CreateAtDestinationResult {
 
 /**
  * Creates the folders in `folderPath` (parent-to-child) and then the note inside it, for a
- * non-empty "Describe destination" plan the user has already visibly reviewed and confirmed.
- * Unlike createNote(), a note-path collision here is never silently suffixed -- the caller is
- * expected to have already surfaced an explicit open-existing/change-title/cancel choice before
- * calling this (brief "New-folder and collision behavior"); this function's own collision check
- * exists only as defense-in-depth against a plan that went stale between review and click.
+ * non-empty destination plan the user has already visibly reviewed and confirmed. Unlike
+ * createNote(), a note-path collision here is never silently suffixed -- the caller is expected
+ * to have already surfaced an explicit open-existing/edit-title choice before calling this (brief
+ * "New-folder and collision behavior"); this function's own collision check exists only as
+ * defense-in-depth against a plan that went stale between review and click.
  *
- * Every path is re-derived from live `app.vault.getAbstractFileByPath()` calls here, not trusted
- * from the caller's `missingFolders` snapshot -- folders can be created, renamed, or removed by
- * something else between when the plan was computed and when the user clicks Create (brief:
- * "re-preflights live folder/file state immediately before mutation").
+ * `missingFolders` is not trusted as fact about the live vault -- only as the *accepted plan's own
+ * classification* of which `folderPath` prefixes the user was told would be created versus which
+ * were told to already exist (progressive-destination-composer-addendum.md "Create-service
+ * prerequisite correction" -- the technical-review-flagged stale-plan defect). Every prefix is
+ * re-preflighted against live `app.vault.getAbstractFileByPath()` state before any mutation:
+ * an expected-existing prefix that is no longer a `TFolder` aborts instead of being silently
+ * (re)created: only prefixes the plan itself called out as missing may be created, and only after
+ * the *entire* plan -- folders and the target note path -- has passed preflight.
  */
 export async function createNoteAtDestination(app: App, request: CreateAtDestinationRequest): Promise<CreateAtDestinationResult> {
 	const stem = sanitizeTitle(request.title);
@@ -103,29 +107,69 @@ export async function createNoteAtDestination(app: App, request: CreateAtDestina
 		throw new DestinationCreateError(`"${request.folderPath}" is excluded from this plugin and can't be used as a destination.`, []);
 	}
 
-	const createdFolders: string[] = [];
+	// Every parent-to-child prefix of folderPath ("A", "A/B", "A/B/C", ...), each classified by
+	// the accepted plan as expected-existing or expected-new.
+	const prefixes: string[] = [];
 	let builtPath = "";
 	for (const seg of segments) {
 		builtPath = normalizePath(builtPath ? `${builtPath}/${seg}` : seg);
-		const existing = app.vault.getAbstractFileByPath(builtPath);
-		if (existing) {
-			// A concurrent actor may have already created exactly this folder -- accept it only
-			// if it really is a folder at the exact expected path (brief "Failure handling").
-			if (existing instanceof TFolder) continue;
-			throw new DestinationCreateError(`"${builtPath}" already exists as a note, not a folder.`, createdFolders);
-		}
-		try {
-			await app.vault.createFolder(builtPath);
-			createdFolders.push(builtPath);
-		} catch (e) {
-			console.error("AI Notes: failed to create folder", builtPath, e);
-			throw new DestinationCreateError(`Couldn't create folder "${builtPath}" -- see console for details.`, createdFolders);
+		prefixes.push(builtPath);
+	}
+
+	const missingSet = new Set(request.missingFolders.map((p) => normalizePath(p)));
+	for (const missing of missingSet) {
+		// The accepted plan's own missingFolders must be prefixes of this same folderPath --
+		// otherwise the plan itself is stale/mismatched and nothing should be trusted from it.
+		if (!prefixes.includes(missing)) {
+			throw new DestinationCreateError(`The accepted plan doesn't match "${request.folderPath}" anymore -- please review the destination again.`, []);
 		}
 	}
 
+	// Preflight every prefix before any mutation.
+	for (const prefix of prefixes) {
+		const existing = app.vault.getAbstractFileByPath(prefix);
+		if (missingSet.has(prefix)) {
+			// Expected-new: may be absent (still needs creating) or may already be an exact
+			// TFolder created concurrently by something else -- either is fine. Anything else
+			// (a conflicting TFile) is not.
+			if (existing && !(existing instanceof TFolder)) {
+				throw new DestinationCreateError(`"${prefix}" already exists as a note, not a folder.`, []);
+			}
+		} else {
+			// Expected-existing: the plan was built assuming this folder is already there. If
+			// it's gone (renamed/deleted between review and click), abort instead of silently
+			// recreating it under the user's back.
+			if (!(existing instanceof TFolder)) {
+				throw new DestinationCreateError(`"${prefix}" no longer exists -- the destination has changed since it was reviewed. Please review it again.`, []);
+			}
+		}
+	}
+
+	// Preflight the target note collision before creating any folders.
 	const notePath = normalizePath(request.folderPath ? `${request.folderPath}/${stem}.md` : `${stem}.md`);
 	if (app.vault.getAbstractFileByPath(notePath)) {
 		// Never overwrite, append, or numeric-suffix a targeted-destination collision (brief).
+		throw new DestinationCreateError(`"${notePath}" already exists.`, []);
+	}
+
+	// Only now, with the whole plan preflighted, create the missing folders parent-to-child.
+	const createdFolders: string[] = [];
+	for (const prefix of prefixes) {
+		if (!missingSet.has(prefix)) continue;
+		const existing = app.vault.getAbstractFileByPath(prefix);
+		if (existing instanceof TFolder) continue; // created concurrently since the preflight pass above
+		try {
+			await app.vault.createFolder(prefix);
+			createdFolders.push(prefix);
+		} catch (e) {
+			console.error("Amnesiarch: failed to create folder", prefix, e);
+			throw new DestinationCreateError(`Couldn't create folder "${prefix}" -- see console for details.`, createdFolders);
+		}
+	}
+
+	// Something could have raced us while the folders above were being created -- re-check once
+	// more immediately before the write.
+	if (app.vault.getAbstractFileByPath(notePath)) {
 		throw new DestinationCreateError(`"${notePath}" already exists.`, createdFolders);
 	}
 
@@ -133,7 +177,7 @@ export async function createNoteAtDestination(app: App, request: CreateAtDestina
 	try {
 		file = await app.vault.create(notePath, request.content + "\n");
 	} catch (e) {
-		console.error("AI Notes: failed to create note at destination", notePath, e);
+		console.error("Amnesiarch: failed to create note at destination", notePath, e);
 		throw new DestinationCreateError(`Couldn't create the note at "${notePath}" -- see console for details.`, createdFolders);
 	}
 	return { file, createdFolders };

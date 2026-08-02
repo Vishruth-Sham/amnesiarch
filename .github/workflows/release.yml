@@ -1,0 +1,101 @@
+name: Release Obsidian plugin
+
+on:
+  push:
+    # Keep the tag filter broad so both 1.2.3 and v1.2.3 conventions work;
+    # the validation step below rejects non-SemVer or mismatched tags loudly.
+    tags:
+      - "*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          # The repository's Node typings target Node 20 and no engine is declared.
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Build production bundle
+        run: npm run build
+
+      - name: Validate release metadata and assets
+        id: metadata
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require("node:fs");
+
+          const manifest = JSON.parse(fs.readFileSync("manifest.json", "utf8"));
+          const versions = JSON.parse(fs.readFileSync("versions.json", "utf8"));
+          const tagVersion = process.env.GITHUB_REF_NAME.replace(/^v/, "");
+          const semver = /^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
+
+          if (!semver.test(tagVersion)) {
+            throw new Error(`Release tag ${process.env.GITHUB_REF_NAME} is not a supported SemVer tag`);
+          }
+          if (manifest.version !== tagVersion) {
+            throw new Error(
+              `Release tag ${process.env.GITHUB_REF_NAME} does not match manifest.json version ${manifest.version}`,
+            );
+          }
+          if (!/^[a-z0-9-]+$/.test(manifest.id)) {
+            throw new Error(`manifest.json contains an unsafe plugin id: ${manifest.id}`);
+          }
+          // Maintainers must add this compatibility decision before tagging.
+          // CI validates versions.json but intentionally never edits it.
+          if (!Object.hasOwn(versions, manifest.version)) {
+            throw new Error(
+              `versions.json is missing ${manifest.version}; add its minimum Obsidian version manually before tagging`,
+            );
+          }
+
+          for (const asset of ["main.js", "manifest.json", "styles.css"]) {
+            const stat = fs.statSync(asset);
+            if (!stat.isFile() || stat.size === 0) {
+              throw new Error(`Required release asset is missing or empty: ${asset}`);
+            }
+          }
+          NODE
+
+          plugin_id="$(node -p 'require("./manifest.json").id')"
+          version="$(node -p 'require("./manifest.json").version')"
+          echo "plugin_id=${plugin_id}" >> "$GITHUB_OUTPUT"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Create convenience archive
+        id: archive
+        shell: bash
+        run: |
+          plugin_id="${{ steps.metadata.outputs.plugin_id }}"
+          version="${{ steps.metadata.outputs.version }}"
+          mkdir -p "release/${plugin_id}"
+          cp main.js manifest.json styles.css "release/${plugin_id}/"
+          (cd release && zip -r "../${plugin_id}-${version}.zip" "${plugin_id}")
+          echo "path=${plugin_id}-${version}.zip" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            main.js \
+            manifest.json \
+            styles.css \
+            "${{ steps.archive.outputs.path }}" \
+            --verify-tag \
+            --generate-notes \
+            --title "${{ steps.metadata.outputs.plugin_id }} ${{ steps.metadata.outputs.version }}"

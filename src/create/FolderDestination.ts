@@ -198,6 +198,12 @@ function joinPath(parentPath: string, name: string): string {
 	return normalizePath(parentPath ? `${parentPath}/${name}` : name);
 }
 
+/** Public wrapper around joinPath() -- the progressive composer needs to compute a not-yet-
+ *  created folder token's path outside this module. */
+export function joinFolderPath(parentPath: string, name: string): string {
+	return joinPath(parentPath, name);
+}
+
 // Mirrors CreateNoteService.ts's private sanitizeTitle() -- duplicated (not imported) so this
 // module never depends on the create service, avoiding a create-service <-> destination-module
 // import cycle (CreateNoteService already imports validateSegmentName from here). An explicit
@@ -439,7 +445,12 @@ function resolveAncestorSegment(
 	return { kind: "create", requested: resolution.name || requested, path: "" };
 }
 
-function resolveLeafSegment(requested: string, siblings: readonly FolderInfo[], override: DestinationChoice | undefined): SegmentResolution {
+/** Resolves a `create-new` segment: never fuzzy-corrected, only ever exact-match-as-collision or
+ *  create-verbatim. Despite the old name ("leaf"), `resolveFolderDestination()` already dispatches
+ *  on `seg.intent` at every index, not just the last one -- `create-new` is a documented, tested
+ *  contract at any segment position (progressive-destination-composer-addendum.md "Additive
+ *  segment-suggestion API"), e.g. the composer's explicit slash/Create-button commits. */
+function resolveExplicitNewSegment(requested: string, siblings: readonly FolderInfo[], override: DestinationChoice | undefined): SegmentResolution {
 	if (override) {
 		const resolution = override.resolution;
 		if (resolution.kind === "existing") {
@@ -454,6 +465,42 @@ function resolveLeafSegment(requested: string, siblings: readonly FolderInfo[], 
 	const collisionFolder = siblings.find((f) => normalizeForComparison(f.name) === normReq);
 	if (collisionFolder) return { kind: "collision", requested, folder: collisionFolder };
 	return { kind: "create", requested, path: "" };
+}
+
+export type FolderSegmentSuggestion =
+	| { kind: "empty" }
+	| { kind: "exact"; folder: FolderInfo }
+	| { kind: "fuzzy"; requested: string; folder: FolderInfo }
+	| { kind: "ambiguous"; requested: string }
+	| { kind: "none"; requested: string };
+
+/**
+ * Pure per-keystroke suggestion for the progressive destination composer
+ * (progressive-destination-composer-addendum.md "Additive segment-suggestion API"). Considers
+ * only `parentPath`'s direct children in `snapshot` -- never a global/whole-vault search, same
+ * bound as resolveFolderDestination(). Returns a suggestion only: nothing here commits a segment,
+ * mutates the vault, or is required to change just because a match is temporarily unique.
+ */
+export function suggestFolderSegment(requested: string, parentPath: string, snapshot: FolderSnapshot, policy: FuzzyPolicy = BALANCED_FUZZY_POLICY): FolderSegmentSuggestion {
+	const trimmed = requested.trim();
+	if (!trimmed) return { kind: "empty" };
+	const siblings = snapshot.childrenByParent.get(parentPath) ?? [];
+	const res = resolveOneSegment(trimmed, siblings, policy);
+	if (res.kind === "exact") return { kind: "exact", folder: res.folder };
+	if (res.kind === "fuzzy") return { kind: "fuzzy", requested: trimmed, folder: res.folder };
+	if (res.kind === "ambiguous") return { kind: "ambiguous", requested: trimmed };
+	return { kind: "none", requested: trimmed };
+}
+
+/** The composer's `/`-commit rule (addendum "Explicit new folder"): a normalized *exact* direct
+ *  sibling only -- fuzzy matches are never auto-applied on slash ("never fuzzy-correct a
+ *  slash-committed new folder"). Deliberately a separate, stricter check from
+ *  suggestFolderSegment()'s eligible-fuzzy case above. */
+export function findExactSibling(requested: string, parentPath: string, snapshot: FolderSnapshot): FolderInfo | null {
+	const normReq = normalizeForComparison(requested);
+	if (!normReq) return null;
+	const siblings = snapshot.childrenByParent.get(parentPath) ?? [];
+	return siblings.find((f) => normalizeForComparison(f.name) === normReq) ?? null;
 }
 
 /**
@@ -477,13 +524,18 @@ export function resolveFolderDestination(
 
 	if (parsed.segments.length === 0) {
 		if (parsed.confidence === "structured") {
+			// Zero segments with a non-null explicitTitle is unreachable from the old sentence
+			// parser (a blank destination is its only "structured, no segments" case) but is a
+			// real state from the composer's zero-folder-tokens-plus-typed-title case ("Model
+			// Evaluation" with no folder committed) -- use the already-computed noteTitle/
+			// titleSource above rather than re-deriving fallbackTitle unconditionally.
 			return {
 				status: "root",
 				segments: [],
 				folderPath: "",
-				noteTitle: fallbackTitle,
-				notePath: normalizePath(`${fallbackTitle}.md`),
-				titleSource: "capture-proposal",
+				noteTitle,
+				notePath: normalizePath(`${noteTitle}.md`),
+				titleSource,
 				missingFolders: [],
 				warnings: [],
 			};
@@ -517,7 +569,7 @@ export function resolveFolderDestination(
 		} else {
 			const key = segmentChoiceKey(i, parentPath, seg.name);
 			const override = choices.get(key);
-			res = seg.intent === "create-new" ? resolveLeafSegment(seg.name, siblings, override) : resolveAncestorSegment(seg.name, siblings, policy, override);
+			res = seg.intent === "create-new" ? resolveExplicitNewSegment(seg.name, siblings, override) : resolveAncestorSegment(seg.name, siblings, policy, override);
 		}
 
 		if (res.kind === "create" && !res.path) {
