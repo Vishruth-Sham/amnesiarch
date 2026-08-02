@@ -17,12 +17,12 @@
 	--qc-border-sidebar: rgba(255, 255, 255, 0.06);
 	--qc-text-primary: #f4f4f5;
 	--qc-text-body: #e4e4e7;
-	--qc-accent: oklch(63% 0.13 296);
-	--qc-accent-hover: oklch(58% 0.14 296);
-	--qc-accent-soft: oklch(63% 0.13 296 / 16%);
-	--qc-accent-ring: oklch(63% 0.13 296 / 40%);
-	--qc-on-accent: oklch(98% 0.01 296);
-	--qc-focus-ring: oklch(72% 0.14 296);
+	--qc-accent: #9177ce;
+	--qc-accent-hover: #8366c3;
+	--qc-accent-soft: rgba(145, 119, 206, 0.16);
+	--qc-accent-ring: rgba(145, 119, 206, 0.40);
+	--qc-on-accent: #f9f7ff;
+	--qc-focus-ring: #ad91f2;
 	--qc-radius-nav: 8px;
 	--qc-radius-chip: 9px;
 	--qc-radius-card: 12px;
@@ -462,7 +462,7 @@ button.ai-quickcap-match-row:disabled {
 
 .ai-quickcap-composer-error {
 	margin-top: 6px;
-	color: oklch(72% 0.16 25);
+	color: #f97770;
 	font-size: 11px;
 	line-height: 1.5;
 }
@@ -480,7 +480,7 @@ button.ai-quickcap-match-row:disabled {
 }
 
 .ai-quickcap-destination-error {
-	color: oklch(72% 0.16 25);
+	color: #f97770;
 	font-size: 11.5px;
 	line-height: 1.5;
 }
