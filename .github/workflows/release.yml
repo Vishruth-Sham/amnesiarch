@@ -2,8 +2,10 @@ name: Release Obsidian plugin
 
 on:
   push:
-    # Keep the tag filter broad so both 1.2.3 and v1.2.3 conventions work;
-    # the validation step below rejects non-SemVer or mismatched tags loudly.
+    # Keep the tag filter broad (any tag triggers the workflow); the validation step below is
+    # what rejects a non-SemVer, mismatched, or "v"-prefixed tag loudly, rather than the trigger
+    # silently ignoring it. Obsidian's installer requires the bare version with no "v" prefix
+    # (e.g. "0.1.0", not "v0.1.0") -- see the tag-prefix check below.
     tags:
       - "*"
 
@@ -41,8 +43,24 @@ jobs:
 
           const manifest = JSON.parse(fs.readFileSync("manifest.json", "utf8"));
           const versions = JSON.parse(fs.readFileSync("versions.json", "utf8"));
-          const tagVersion = process.env.GITHUB_REF_NAME.replace(/^v/, "");
+          const tagName = process.env.GITHUB_REF_NAME;
           const semver = /^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
+
+          // Obsidian's plugin installer rejects a "v"-prefixed release tag outright ("Your GitHub
+          // release doesn't use a v in front of the version number, it should be 1.0.0 not
+          // v1.0.0") -- it wants the exact opposite of what that message literally says: no "v"
+          // at all. A previous version of this check silently stripped a leading "v" before
+          // comparing versions, which is exactly how a "v0.1.0" release got published and
+          // rejected by Obsidian. Never strip it -- fail loudly instead so a mistagged release
+          // never reaches the "Create GitHub Release" step.
+          if (tagName.startsWith("v")) {
+            throw new Error(
+              `Release tag "${tagName}" starts with "v", but Obsidian's plugin installer requires ` +
+                `the bare version number with no "v" prefix (e.g. "0.1.0", not "v0.1.0"). Delete ` +
+                `this tag and push a new one without the leading "v".`,
+            );
+          }
+          const tagVersion = tagName;
 
           if (!semver.test(tagVersion)) {
             throw new Error(`Release tag ${process.env.GITHUB_REF_NAME} is not a supported SemVer tag`);
