@@ -172,16 +172,26 @@ export const MAX_SEGMENT_LENGTH = 200;
 // Same illegal set CreateNoteService.ts uses for filenames, plus separators (a single path
 // segment must never itself contain a separator -- those are stripped during parsing already).
 const ILLEGAL_SEGMENT_CHARS = /[\\/:*?"<>|#^[\]]/;
+// eslint-disable-next-line no-control-regex -- intentional: rejecting control characters in a
+// folder name is the actual safety check here, not a mistake to be "fixed" by removing them.
 const CONTROL_CHAR_RE = /[\x00-\x1f\x7f]/;
+
+/** Default fallback for `validateSegmentName()`'s `configDir` parameter -- Obsidian's actual
+ *  config folder is user-configurable (`Vault#configDir`), so this is only correct for callers
+ *  that genuinely have no live `App`/`Vault` to ask (pure-logic call sites, e.g. within this same
+ *  module) -- every call site with access to a real vault should pass its actual configDir. */
+const DEFAULT_CONFIG_DIR = ".obsidian";
 
 /** Returns a human-readable rejection reason, or null when `name` is safe to use as one path
  *  segment. Called both while building a plan (so invalid segments render inline, not as a
- *  generic Notice) and again, defense-in-depth, immediately before mutation. */
-export function validateSegmentName(name: string): string | null {
+ *  generic Notice) and again, defense-in-depth, immediately before mutation.
+ *  `configDir` defaults to Obsidian's usual ".obsidian" but should be passed as the vault's real
+ *  `Vault#configDir` wherever a live `App` is available -- it's user-configurable. */
+export function validateSegmentName(name: string, configDir: string = DEFAULT_CONFIG_DIR): string | null {
 	if (name.length === 0) return "That folder name can't be empty.";
 	if (name.length > MAX_SEGMENT_LENGTH) return "That folder name is too long.";
 	if (name === "." || name === "..") return `"${name}" isn't allowed as a folder name.`;
-	if (name.toLowerCase() === ".obsidian") return "\".obsidian\" is reserved by Obsidian.";
+	if (name.toLowerCase() === configDir.toLowerCase()) return `"${configDir}" is reserved by Obsidian.`;
 	if (CONTROL_CHAR_RE.test(name)) return "That folder name contains unsupported characters.";
 	if (ILLEGAL_SEGMENT_CHARS.test(name)) return 'Folder names can\'t contain \\ / : * ? " < > | # ^ [ ]';
 	if (/[ .]$/.test(name)) return "Folder names can't end with a space or a period on some platforms.";
@@ -518,6 +528,9 @@ export function resolveFolderDestination(
 	fallbackTitle: string,
 	policy: FuzzyPolicy = BALANCED_FUZZY_POLICY,
 	excludePatterns: readonly string[] = [],
+	// Threaded down into validateSegmentName() below -- see its own doc comment. Callers with a
+	// live App should pass `app.vault.configDir`; the default only applies to pure-logic callers.
+	configDir: string = DEFAULT_CONFIG_DIR,
 ): DestinationPlan {
 	const noteTitle = parsed.explicitTitle ? sanitizeTitleForPath(parsed.explicitTitle) : fallbackTitle;
 	const titleSource: TitleSource = parsed.explicitTitle ? "destination" : "capture-proposal";
@@ -560,7 +573,7 @@ export function resolveFolderDestination(
 
 	for (let i = 0; i < parsed.segments.length; i++) {
 		const seg = parsed.segments[i];
-		const validationError = validateSegmentName(seg.name);
+		const validationError = validateSegmentName(seg.name, configDir);
 		const siblings = snapshot.childrenByParent.get(parentPath) ?? [];
 
 		let res: SegmentResolution;

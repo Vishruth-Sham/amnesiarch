@@ -60,7 +60,7 @@ export class AnchoredTooltipController implements TooltipController {
 		const tooltipEl = root.createDiv({ cls: "ai-quickcap-tooltip" });
 		tooltipEl.setAttribute("role", "tooltip");
 		tooltipEl.id = this.tooltipId;
-		tooltipEl.style.visibility = "hidden";
+		tooltipEl.setCssStyles({ visibility: "hidden" });
 		this.textEl = tooltipEl.createSpan({ cls: "ai-quickcap-tooltip-text" });
 		this.arrowEl = tooltipEl.createDiv({ cls: "ai-quickcap-tooltip-arrow" });
 		this.tooltipEl = tooltipEl;
@@ -114,7 +114,7 @@ export class AnchoredTooltipController implements TooltipController {
 		if (!this.activeTarget) return;
 		this.activeTarget.removeAttribute("aria-describedby");
 		this.activeTarget = null;
-		if (this.tooltipEl) this.tooltipEl.style.visibility = "hidden";
+		if (this.tooltipEl) this.tooltipEl.setCssStyles({ visibility: "hidden" });
 	}
 
 	private handleEnter(eventTarget: EventTarget | null): void {
@@ -171,7 +171,7 @@ export class AnchoredTooltipController implements TooltipController {
 		}
 
 		// Measure with visibility:hidden (not display:none) so layout is real but nothing flashes.
-		this.tooltipEl.style.visibility = "hidden";
+		this.tooltipEl.setCssStyles({ visibility: "hidden" });
 		const tooltipRect = this.tooltipEl.getBoundingClientRect();
 		const w = tooltipRect.width;
 		const h = tooltipRect.height;
@@ -191,10 +191,9 @@ export class AnchoredTooltipController implements TooltipController {
 		const targetCenterX = targetRect.left + targetRect.width / 2;
 		const arrowLeft = Math.min(Math.max(targetCenterX - left, ARROW_EDGE_INSET), Math.max(w - ARROW_EDGE_INSET, ARROW_EDGE_INSET));
 
-		this.tooltipEl.style.left = `${Math.round(left)}px`;
-		this.tooltipEl.style.top = `${Math.round(top)}px`;
+		this.tooltipEl.setCssStyles({ left: `${Math.round(left)}px`, top: `${Math.round(top)}px` });
 		this.tooltipEl.setAttribute("data-placement", placement);
-		this.arrowEl.style.left = `${Math.round(arrowLeft)}px`;
-		this.tooltipEl.style.visibility = "visible";
+		this.arrowEl.setCssStyles({ left: `${Math.round(arrowLeft)}px` });
+		this.tooltipEl.setCssStyles({ visibility: "visible" });
 	}
 }

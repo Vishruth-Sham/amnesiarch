@@ -42,7 +42,9 @@ export function extractMetadata(app: App, file: TFile): NoteMetadata {
 	const cache = app.metadataCache.getFileCache(file);
 	const folderChain = file.parent && file.parent.path !== "/" ? file.parent.path.split("/").filter(Boolean) : [];
 	const tags = cache ? getAllTags(cache) ?? [] : [];
-	const rawAliases = cache?.frontmatter?.aliases;
+	// FrontMatterCache is typed `{ [key: string]: any }` by Obsidian -- narrow to `unknown` at the
+	// assignment boundary rather than letting `any` propagate into `rawAliases`'s type.
+	const rawAliases: unknown = cache?.frontmatter?.aliases;
 	const aliases = Array.isArray(rawAliases) ? rawAliases.map(String) : rawAliases ? [String(rawAliases)] : [];
 	const outgoingLinks = Object.keys(app.metadataCache.resolvedLinks[file.path] ?? {});
 	const backlinks = Object.entries(app.metadataCache.resolvedLinks)

@@ -100,7 +100,7 @@ export async function createNoteAtDestination(app: App, request: CreateAtDestina
 	const segments = request.folderPath ? request.folderPath.split("/") : [];
 
 	for (const seg of segments) {
-		const err = validateSegmentName(seg);
+		const err = validateSegmentName(seg, app.vault.configDir);
 		if (err) throw new DestinationCreateError(`Can't use "${request.folderPath}" -- ${err}`, []);
 	}
 	if (request.excludePatterns && request.excludePatterns.length > 0 && matchesExcludePattern(request.folderPath, [...request.excludePatterns])) {
