@@ -34,6 +34,11 @@ export interface ProgressiveDestinationComposerOptions {
 	 *  rebuilt on every unrelated re-render (e.g. toggling "Search instead"), so a callback
 	 *  captured only at construction time would close over stale, already-removed DOM. */
 	onChange: () => void;
+	/** The vault's actual config-folder name (`Vault#configDir` -- usually ".obsidian" but
+	 *  user-configurable), threaded down into validateSegmentName()'s reserved-name check.
+	 *  Optional so pure-logic/test call sites can omit it and fall back to the ordinary default;
+	 *  every real caller with a live `App` should pass `app.vault.configDir`. */
+	configDir?: string;
 }
 
 /**
@@ -58,6 +63,7 @@ export class ProgressiveDestinationComposer {
 
 	private readonly buildSnapshot: () => FolderSnapshot;
 	private onChange: () => void;
+	private readonly configDir: string;
 	private readonly rootEl: HTMLElement;
 	private readonly fieldEl: HTMLElement;
 	private readonly messageEl: HTMLElement;
@@ -66,17 +72,23 @@ export class ProgressiveDestinationComposer {
 	constructor(opts: ProgressiveDestinationComposerOptions) {
 		this.buildSnapshot = opts.buildSnapshot;
 		this.onChange = opts.onChange;
+		this.configDir = opts.configDir ?? ".obsidian";
 		this.snapshot = this.buildSnapshot();
 
-		this.rootEl = document.createElement("div");
-		this.rootEl.className = "ai-quickcap-composer";
+		// Free-standing createDiv()/createEl() (not document.createElement) -- Obsidian's own
+		// detached-element helpers, which work fine before this.rootEl has any parent (it's
+		// mounted into a real container later via mount()).
+		this.rootEl = createDiv({ cls: "ai-quickcap-composer" });
 		this.fieldEl = this.rootEl.createDiv({ cls: "ai-quickcap-composer-field" });
-		this.inputEl = document.createElement("input");
-		this.inputEl.type = "text";
-		this.inputEl.className = "ai-quickcap-composer-input";
-		this.inputEl.setAttribute("aria-label", "Create at");
-		this.inputEl.setAttribute("placeholder", "Type a folder or note title…");
-		this.inputEl.spellcheck = false;
+		this.inputEl = createEl("input", {
+			cls: "ai-quickcap-composer-input",
+			attr: {
+				type: "text",
+				"aria-label": "Create at",
+				placeholder: "Type a folder or note title…",
+				spellcheck: "false",
+			},
+		});
 		this.messageEl = this.rootEl.createDiv({ cls: "ai-quickcap-composer-message" });
 
 		this.wireInput();
@@ -226,7 +238,7 @@ export class ProgressiveDestinationComposer {
 	}
 
 	private validationErrorFor(name: string): string | null {
-		return validateSegmentName(name);
+		return validateSegmentName(name, this.configDir);
 	}
 
 	private showError(message: string): void {
@@ -323,7 +335,9 @@ export class ProgressiveDestinationComposer {
 		});
 
 		this.inputEl.addEventListener("keydown", (evt: KeyboardEvent) => {
-			if (this.isComposing || evt.keyCode === 229) return;
+			// isComposing (tracked via compositionstart/compositionend below) already covers IME
+			// composition state -- no need for the deprecated evt.keyCode === 229 fallback too.
+			if (this.isComposing) return;
 
 			if (evt.key === "/") {
 				evt.preventDefault();

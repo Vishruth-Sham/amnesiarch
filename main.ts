@@ -14,7 +14,11 @@ export default class AmnesiarchPlugin extends Plugin {
 	settings!: AmnesiarchSettings;
 
 	async onload(): Promise<void> {
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+		// loadData() is typed Promise<any> by the Obsidian API -- narrow it to this plugin's own
+		// settings shape (the only thing ever saved via saveSettings()) rather than letting `any`
+		// flow into `this.settings`'s assignment.
+		const savedData = (await this.loadData()) as Partial<AmnesiarchSettings> | null;
+		this.settings = Object.assign({}, DEFAULT_SETTINGS, savedData ?? {});
 
 		this.cache = new NoteCache(this.app, this.manifest.dir ?? `.obsidian/plugins/${this.manifest.id}`);
 		this.indexer = new VaultIndexer(this.app, this.cache, () => this.settings.excludePatterns);
@@ -53,8 +57,12 @@ export default class AmnesiarchPlugin extends Plugin {
 					new Notice("Amnesiarch: no notes indexed yet.");
 					return;
 				}
+				// Debug-only, user-triggered command (never automatic/background logging). The
+				// Notice below already surfaces noteCount and the three structural weights, so
+				// only the full profile object -- which also has tagCoverage/folderBranching/
+				// linkDensity/titleInformativeness that the Notice doesn't -- is worth the extra
+				// console.log; a second log of `weights` alone would just repeat the Notice.
 				console.log("Amnesiarch: vault profile", profile);
-				console.log("Amnesiarch: derived structural weights", weights);
 				new Notice(
 					`Amnesiarch vault profile (full detail in console):\n` +
 						`${profile.noteCount} notes · title ${weights.title.toFixed(2)} · ` +
@@ -96,7 +104,11 @@ export default class AmnesiarchPlugin extends Plugin {
 	}
 
 	onunload(): void {
-		this.app.workspace.detachLeavesOfType(VIEW_TYPE_AMNESIARCH_QUICK_CAPTURE);
+		// Deliberately does NOT detachLeavesOfType() here -- doing so in onunload() resets the
+		// leaf to its default location the next time the plugin loads, even if the user had moved
+		// it elsewhere (Obsidian plugin guidelines). Any open Quick Capture leaf is simply left as
+		// an orphaned view when the plugin unloads/disables/updates, same as most other plugins.
+		//
 		// Flush any pending debounced cache write (NoteCache.scheduleSave()) immediately rather
 		// than losing up to CACHE_SAVE_DEBOUNCE_MS of indexing progress on quit/disable.
 		void this.cache.flush().catch((e) => console.error("Amnesiarch: failed to flush cache on unload", e));
@@ -116,6 +128,10 @@ export default class AmnesiarchPlugin extends Plugin {
 			leaf = workspace.getLeaf(true);
 			await leaf.setViewState({ type: VIEW_TYPE_AMNESIARCH_QUICK_CAPTURE, active: true });
 		}
-		workspace.revealLeaf(leaf);
+		// setActiveLeaf() (not revealLeaf(), which needs Obsidian 1.7.2) -- Quick Capture always
+		// opens in the main workspace area, never a collapsible sidebar (see the comment above),
+		// so revealLeaf()'s extra "uncollapse the sidebar" behavior doesn't apply here; bringing
+		// the leaf to the front and focusing it is all this actually needs.
+		workspace.setActiveLeaf(leaf, { focus: true });
 	}
 }

@@ -252,7 +252,15 @@ export class QuickCaptureView extends ItemView {
 		const fallbackTitle = proposeTitle(this.draftText);
 		const parsed = this.composer.buildDestinationParse();
 		const snapshot = buildFolderSnapshot(this.plugin.app.vault.getAllFolders());
-		const plan = resolveFolderDestination(parsed, snapshot, new Map(), fallbackTitle, undefined, this.plugin.settings.excludePatterns);
+		const plan = resolveFolderDestination(
+			parsed,
+			snapshot,
+			new Map(),
+			fallbackTitle,
+			undefined,
+			this.plugin.settings.excludePatterns,
+			this.plugin.app.vault.configDir,
+		);
 
 		const stale = this.findStaleExistingToken(this.composer.getFolders(), plan);
 		this.destinationPlan = stale ? { ...plan, status: "invalid", warnings: [...plan.warnings, stale] } : plan;
@@ -734,6 +742,7 @@ export class QuickCaptureView extends ItemView {
 			this.composer = new ProgressiveDestinationComposer({
 				buildSnapshot: () => buildFolderSnapshot(this.plugin.app.vault.getAllFolders()),
 				onChange: refreshPreviewOnly,
+				configDir: this.plugin.app.vault.configDir,
 			});
 		} else {
 			// Card was re-rendered (e.g. "Search instead" toggled, re-entering create mode after

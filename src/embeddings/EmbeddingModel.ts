@@ -43,8 +43,8 @@ function forceBrowserLikeProcess(): () => void {
 		}
 	};
 
-	patch(proc.release as Record<string, unknown> | undefined, "name", "obsidian-renderer");
-	patch(proc.versions as Record<string, unknown> | undefined, "node", undefined);
+	patch(proc.release, "name", "obsidian-renderer");
+	patch(proc.versions, "node", undefined);
 
 	return () => restorers.forEach((r) => r());
 }

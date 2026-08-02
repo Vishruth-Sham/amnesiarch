@@ -9,12 +9,15 @@ import { extractMetadata } from "./MetadataExtractor";
 import { NoteCache } from "./NoteCache";
 
 function yieldToEventLoop(): Promise<void> {
-	return new Promise((resolve) => setTimeout(resolve, 0));
+	return new Promise((resolve) => window.setTimeout(resolve, 0));
 }
 
 export class VaultIndexer {
 	private dirty = new Set<string>();
-	private debounceTimer: ReturnType<typeof setTimeout> | null = null;
+	// window.setTimeout/window.clearTimeout (not the bare globals) for popout-window
+	// compatibility -- see the matching call sites in queue() below. Typed as `number` (not
+	// `ReturnType<typeof window.setTimeout>`): see NoteCache.ts's saveTimer for why.
+	private debounceTimer: number | null = null;
 	private processing = false;
 
 	onProgress: ((done: number, total: number) => void) | null = null;
@@ -65,8 +68,8 @@ export class VaultIndexer {
 	/** Queue a file for (re)embedding + metadata refresh; debounced so bursts coalesce. */
 	queue(path: string): void {
 		this.dirty.add(path);
-		if (this.debounceTimer) clearTimeout(this.debounceTimer);
-		this.debounceTimer = setTimeout(() => {
+		if (this.debounceTimer) window.clearTimeout(this.debounceTimer);
+		this.debounceTimer = window.setTimeout(() => {
 			this.debounceTimer = null;
 			void this.processQueue();
 		}, INDEX_DEBOUNCE_MS);

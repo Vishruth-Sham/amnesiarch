@@ -4,7 +4,13 @@ import { EmbeddingCacheFile, NoteEntry } from "../types";
 
 export class NoteCache {
 	private entries = new Map<string, NoteEntry>();
-	private saveTimer: ReturnType<typeof setTimeout> | null = null;
+	// window.setTimeout/window.clearTimeout (not the bare globals) for popout-window
+	// compatibility -- see the matching call sites in flush()/scheduleSave() below. Typed as
+	// `number` (not `ReturnType<typeof window.setTimeout>`): with both DOM and @types/node's
+	// lib.dom-and-node timer overloads in scope, `window.setTimeout` merges into an overloaded
+	// type where `ReturnType<>` picks Node's `Timeout` overload even though calling it here
+	// actually returns the DOM `number` handle -- a known TS quirk with overloaded functions.
+	private saveTimer: number | null = null;
 	/** Bumped on every mutation; ProfileCache uses this to know when to recompute the vault
 	 *  profile without re-deriving it on every keystroke. */
 	generation = 0;
@@ -44,7 +50,7 @@ export class NoteCache {
 	 *  and on plugin unload, where losing the pending debounce window would lose real progress. */
 	async flush(): Promise<void> {
 		if (this.saveTimer) {
-			clearTimeout(this.saveTimer);
+			window.clearTimeout(this.saveTimer);
 			this.saveTimer = null;
 		}
 		await this.save();
@@ -55,7 +61,7 @@ export class NoteCache {
 	 *  coalesces bursts of mutations into one write CACHE_SAVE_DEBOUNCE_MS after the last one. */
 	scheduleSave(): void {
 		if (this.saveTimer) return;
-		this.saveTimer = setTimeout(() => {
+		this.saveTimer = window.setTimeout(() => {
 			this.saveTimer = null;
 			void this.save();
 		}, CACHE_SAVE_DEBOUNCE_MS);
