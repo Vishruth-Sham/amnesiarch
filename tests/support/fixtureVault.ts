@@ -577,6 +577,8 @@ export interface FixtureMeta {
 	deepNoteFolderChain: string[];
 	duplicateBasenamePaths: [string, string];
 	duplicateBasename: string;
+	duplicateBasenameSameFolderLink: { from: string; expectedTarget: string };
+	duplicateBasenameTieBreakLink: { from: string; expectedTarget: string };
 	mixedFrontmatterNotePath: string;
 	longNotePath: string; // forces multi-chunk packing
 	hugeNotePath: string; // forces MAX_CHUNKS_PER_NOTE downsampling
@@ -702,6 +704,15 @@ export function buildFixtureVault(seed = 42): FixtureVault {
 			details: { owner: "Alex", reviewed: true },
 		})}\n# Mixed Frontmatter\n\nExercises both an array-valued and an object-valued frontmatter key.\n`,
 	);
+
+	// Duplicate-basename wikilink resolution: two notes are both named "Overview" (dupPathA in
+	// Resources/Programming, dupPathB in Areas/Health -- see above). One link source sits in the
+	// same folder as dupPathA (should resolve there, same-folder-first); another sits in neither
+	// folder (should tie-break to the shortest path, dupPathB).
+	const duplicateBasenameSameFolderLinkPath = "Resources/Programming/Guide.md";
+	files.set(duplicateBasenameSameFolderLinkPath, "# Guide\n\nSee [[Overview]] for background.\n");
+	const duplicateBasenameTieBreakLinkPath = "Inbox/Overview Pointer.md";
+	files.set(duplicateBasenameTieBreakLinkPath, "# Overview Pointer\n\nSee [[Overview]] for background.\n");
 
 	// --- Filler notes across a generated folder tree under each top-level area ---
 	const clusterAndFixedCount = files.size;
@@ -830,6 +841,8 @@ export function buildFixtureVault(seed = 42): FixtureVault {
 		deepNoteFolderChain,
 		duplicateBasenamePaths: [dupPathA, dupPathB],
 		duplicateBasename,
+		duplicateBasenameSameFolderLink: { from: duplicateBasenameSameFolderLinkPath, expectedTarget: dupPathA },
+		duplicateBasenameTieBreakLink: { from: duplicateBasenameTieBreakLinkPath, expectedTarget: dupPathB },
 		mixedFrontmatterNotePath,
 		longNotePath,
 		hugeNotePath,
