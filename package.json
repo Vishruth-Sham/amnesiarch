@@ -5,14 +5,19 @@
 	"main": "main.js",
 	"scripts": {
 		"dev": "node esbuild.config.mjs",
-		"build": "node esbuild.config.mjs production"
+		"build": "node esbuild.config.mjs production",
+		"test": "vitest run",
+		"test:watch": "vitest",
+		"typecheck": "tsc --noEmit"
 	},
 	"license": "MIT",
 	"devDependencies": {
 		"@types/node": "^20.0.0",
 		"esbuild": "^0.21.0",
 		"obsidian": "latest",
-		"typescript": "^5.4.0"
+		"typescript": "^5.4.0",
+		"vitest": "^2.1.0",
+		"yaml": "^2.5.0"
 	},
 	"dependencies": {
 		"@huggingface/transformers": "^3.0.0"
