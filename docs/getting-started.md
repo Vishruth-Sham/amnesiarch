@@ -9,6 +9,10 @@ In Obsidian, go to **Settings → Community plugins → Browse**, search for **A
 
 Amnesiarch is desktop-only — it isn't available on Obsidian's mobile apps.
 
+Not seeing Amnesiarch in Browse yet? See [Installing from source](./install-from-source.md)
+for how to install it via git or [BRAT](https://github.com/TfTHacker/obsidian42-brat) in the
+meantime.
+
 ## Your first capture
 
 Open the **Quick Capture** pane: click the inbox icon in the left ribbon, or run
