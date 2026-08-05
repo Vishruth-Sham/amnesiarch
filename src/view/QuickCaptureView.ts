@@ -10,6 +10,17 @@ import { ComposerFolderToken, ProgressiveDestinationComposer } from "../create/P
 import { rankNoteMetadata, NotePickerItem } from "../search/NotePicker";
 import { AnchoredTooltipController, setQuickCaptureTooltip } from "./AnchoredTooltip";
 import { SearchResult } from "../types";
+import {
+	AddOutcomeSource,
+	PendingSortObservation,
+	SortDismissalReason,
+	SortResolvedEvent,
+	SortResolvedOutcome,
+	classifyAddOutcome,
+	classifyPresentedPhase,
+	computeMargin,
+	makeSortId,
+} from "../stats/SortOutcome";
 
 /** Sentinel activeNoteId for the (non-persisted) Quick Capture pane -- see README's
  *  "State Management" section in design_handoff_ai_quick_capture/. */
@@ -132,6 +143,14 @@ export class QuickCaptureView extends ItemView {
 	private filedHighlights = new Map<string, string>();
 	private lastResults: SearchResult[] | null = null;
 
+	/** The current Sort awaiting a stats resolution, or null when statistics are disabled or
+	 *  there is nothing pending -- see recordSortPresented()/resolveSortAdd()/
+	 *  resolveSortTerminal() below. Entirely separate from `sorted`/`lastResults`/`forceCreate`
+	 *  (the actual decision-rendering state, unchanged by this feature); this is local,
+	 *  in-memory-only bookkeeping for local-sort-usage-stats and never influences what's shown or
+	 *  where text gets routed. */
+	private pendingSort: PendingSortObservation | null = null;
+
 	// ---- manual "Search notes instead" picker state (view-local, decision-card-scoped) ----
 	private isNotePickerOpen = false;
 	private notePickerQuery = "";
@@ -191,6 +210,12 @@ export class QuickCaptureView extends ItemView {
 		this.tooltipController?.destroy();
 		this.tooltipController = null;
 		this.clearDestinationState();
+		// Best-effort: a view close with a decision still unresolved records "abandoned" rather
+		// than leaving it permanently pending. The event is only kept in memory here (via
+		// SortStatsStore.recordResolved(), itself synchronous) -- the actual debounced disk write
+		// is flushed during plugin unload (main.ts), not here (implementation brief: "keep the
+		// event in memory and flush it through the store during plugin unload").
+		this.resolveSortTerminal("abandoned", "view-closed");
 	}
 
 	// ---------- state transition helpers ----------
@@ -307,6 +332,103 @@ export class QuickCaptureView extends ItemView {
 		return "match";
 	}
 
+	// ---------- Sort outcome statistics (local-only, opt-in -- see src/stats/) ----------
+	//
+	// Observation only: nothing here can affect which card renders, what appendToNote()/
+	// createNote() are given, or any search/scoring/ranking behavior -- see the three methods
+	// below and their call sites. Every write goes through SortStatsStore.recordPresented()/
+	// recordResolved(), which are themselves best-effort and gated on the "Collect local Sort
+	// outcome statistics" setting (SortStatsStore's own isEnabled() getter); the early return
+	// here on the same setting just avoids the Date.now()/object-construction work entirely when
+	// the feature is off, on top of that.
+
+	/** Step 2-4 of the implementation brief's "Sort presentation" lifecycle -- called from
+	 *  handleSort() immediately after `lastResults`/`sorted`/`forceCreate` are set, using the
+	 *  exact same `results` the card is about to render from. Never called for a failed or
+	 *  stale-discarded search (see handleSort()'s catch block and staleness check above). */
+	private recordSortPresented(results: SearchResult[], indexedNoteCount: number): void {
+		if (!this.plugin.settings.collectSortStats) return;
+		try {
+			const phase = classifyPresentedPhase(results, indexedNoteCount, MIN_CONFIDENCE, MIN_MARGIN);
+			const sortId = makeSortId();
+			const now = Date.now();
+			this.plugin.sortStats.recordPresented({
+				schemaVersion: 1,
+				kind: "sort-presented",
+				sortId,
+				timestamp: now,
+				phase,
+				topScore: results[0]?.score ?? null,
+				secondScore: results[1]?.score ?? null,
+				margin: computeMargin(results),
+				returnedCandidateCount: results.length,
+				indexedNoteCount,
+				indexWasBuilding: this.plugin.indexer.isIndexing(),
+				minConfidence: MIN_CONFIDENCE,
+				minMargin: MIN_MARGIN,
+			});
+			this.pendingSort = { sortId, presentedAt: now, phase, topResultPath: results[0]?.entry.path ?? null };
+		} catch (e) {
+			// Best-effort (brief: "Recording must be best-effort ... must never prevent the
+			// decision card from appearing").
+			console.error("Amnesiarch: failed to record sort-presented event", e);
+		}
+	}
+
+	/** Resolves the pending Sort from a successful `handleAdd()` append -- called from within
+	 *  handleAdd() after `appendToNote()` succeeds, before decision state is cleared. `source`
+	 *  identifies which UI path the append came from (see AddOutcomeSource); `selectedPath` and
+	 *  `pendingSort.topResultPath` are compared only in memory here and never themselves written
+	 *  to the stats file -- only the resulting categorical outcome is. A failed append never
+	 *  reaches this method (see handleAdd()'s catch block), so the pending observation survives
+	 *  for a later successful retry. */
+	private resolveSortAdd(source: AddOutcomeSource, selectedPath: string): void {
+		if (!this.pendingSort) return;
+		const pending = this.pendingSort;
+		this.pendingSort = null;
+		try {
+			const { outcome, selectedRank } = classifyAddOutcome(source, selectedPath, pending.topResultPath);
+			const event: SortResolvedEvent = {
+				schemaVersion: 1,
+				kind: "sort-resolved",
+				sortId: pending.sortId,
+				timestamp: Date.now(),
+				decisionMs: Date.now() - pending.presentedAt,
+				outcome,
+			};
+			if (selectedRank !== undefined) event.selectedRank = selectedRank;
+			this.plugin.sortStats.recordResolved(event);
+		} catch (e) {
+			console.error("Amnesiarch: failed to record sort-resolved event", e);
+		}
+	}
+
+	/** Resolves the pending Sort with a fixed outcome that needs no path comparison --
+	 *  `created-note` (handleCreate() success), `dismissed` (Keep editing / draft edited while a
+	 *  decision is showing), and `abandoned` (view closed with a decision still unresolved, see
+	 *  onClose()). A no-op when nothing is pending, which is what makes it safe to call from
+	 *  every "Keep editing" button and the draft textarea's input handler unconditionally --
+	 *  those fire whether or not a Sort was ever presented for the current draft. */
+	private resolveSortTerminal(outcome: SortResolvedOutcome, dismissalReason?: SortDismissalReason): void {
+		if (!this.pendingSort) return;
+		const pending = this.pendingSort;
+		this.pendingSort = null;
+		try {
+			const event: SortResolvedEvent = {
+				schemaVersion: 1,
+				kind: "sort-resolved",
+				sortId: pending.sortId,
+				timestamp: Date.now(),
+				decisionMs: Date.now() - pending.presentedAt,
+				outcome,
+			};
+			if (dismissalReason) event.dismissalReason = dismissalReason;
+			this.plugin.sortStats.recordResolved(event);
+		} catch (e) {
+			console.error("Amnesiarch: failed to record sort-resolved event", e);
+		}
+	}
+
 	// ---------- render: top level ----------
 
 	private render(): void {
@@ -379,6 +501,9 @@ export class QuickCaptureView extends ItemView {
 		// the user's cursor position is untouched -- only the footer below it re-renders.
 		textarea.addEventListener("input", () => {
 			this.draftText = textarea.value;
+			// A no-op once pendingSort is already null (i.e. every keystroke after the first) --
+			// only the first edit following a shown decision actually resolves anything.
+			this.resolveSortTerminal("dismissed", "draft-edited");
 			this.resetDecision();
 			// A destination plan/title typed against the old text may target content that no
 			// longer exists once the draft changes (brief "Input lifecycle").
@@ -441,17 +566,21 @@ export class QuickCaptureView extends ItemView {
 			const queryText = draftAtSort.trim();
 			const queryVec = await embedText(queryText);
 			const weights = this.plugin.profileCache.getWeights();
-			const results = search(queryVec, queryText, this.plugin.cache.getAll(), weights);
+			const candidateEntries = this.plugin.cache.getAll();
+			const results = search(queryVec, queryText, candidateEntries, weights);
 			if (this.draftText !== draftAtSort) {
 				// The draft changed while this Sort was in flight -- a destination computed for
 				// the old text must never be shown against the new text. Silently discard; the
 				// footer re-render below already reflects whatever the current draft/decision
-				// state actually is (the edit's own input handler already reset it).
+				// state actually is (the edit's own input handler already reset it). Recording
+				// nothing here is deliberate (implementation brief: "Sort results discarded
+				// because the draft changed while search was running" must not be recorded).
 				return;
 			}
 			this.lastResults = results;
 			this.sorted = true;
 			this.forceCreate = false;
+			this.recordSortPresented(results, candidateEntries.length);
 		} catch (e) {
 			console.error("Amnesiarch: search failed", e);
 			new Notice("Amnesiarch: something went wrong during search — see console for details.");
@@ -570,12 +699,12 @@ export class QuickCaptureView extends ItemView {
 		const addJumpBtn = this.renderAction(shell.actionStart, {
 			label: "Add and jump",
 			variant: "primary",
-			onClick: () => void this.handleAdd(top.entry.path, top.entry.title, true, buttons),
+			onClick: () => void this.handleAdd(top.entry.path, top.entry.title, true, buttons, { kind: "confident-top" }),
 		});
 		const addStayBtn = this.renderAction(shell.actionStart, {
 			label: "Add and stay here",
 			variant: "secondary",
-			onClick: () => void this.handleAdd(top.entry.path, top.entry.title, false, buttons),
+			onClick: () => void this.handleAdd(top.entry.path, top.entry.title, false, buttons, { kind: "confident-top" }),
 		});
 		const createNewBtn = this.renderAction(shell.actionStart, {
 			label: "Create new note",
@@ -600,6 +729,7 @@ export class QuickCaptureView extends ItemView {
 			label: "Keep editing",
 			variant: "ghost",
 			onClick: () => {
+				this.resolveSortTerminal("dismissed", "keep-editing");
 				this.resetDecision();
 				this.renderFooter(footerEl);
 			},
@@ -625,7 +755,7 @@ export class QuickCaptureView extends ItemView {
 					score: result.score,
 					topScore,
 					isTop: i === 0,
-					onClick: () => void this.handleAdd(result.entry.path, result.entry.title, true, allControls),
+					onClick: () => void this.handleAdd(result.entry.path, result.entry.title, true, allControls, { kind: "ambiguous-candidate", rank: i }),
 				}) as HTMLButtonElement,
 		);
 
@@ -635,7 +765,7 @@ export class QuickCaptureView extends ItemView {
 		const useTopBtn = this.renderAction(shell.actionStart, {
 			label: `Use "${top.entry.title}"`,
 			variant: "primary",
-			onClick: () => void this.handleAdd(top.entry.path, top.entry.title, true, allControls),
+			onClick: () => void this.handleAdd(top.entry.path, top.entry.title, true, allControls, { kind: "ambiguous-candidate", rank: 0 }),
 		});
 		const createNewBtn = this.renderAction(shell.actionStart, {
 			label: "Create new note",
@@ -662,6 +792,7 @@ export class QuickCaptureView extends ItemView {
 			label: "Keep editing",
 			variant: "ghost",
 			onClick: () => {
+				this.resolveSortTerminal("dismissed", "keep-editing");
 				this.resetDecision();
 				this.renderFooter(footerEl);
 			},
@@ -777,6 +908,7 @@ export class QuickCaptureView extends ItemView {
 			label: "Keep editing",
 			variant: "ghost",
 			onClick: () => {
+				this.resolveSortTerminal("dismissed", "keep-editing");
 				this.resetDecision();
 				this.renderFooter(footerEl);
 			},
@@ -913,7 +1045,13 @@ export class QuickCaptureView extends ItemView {
 	 * clearing the draft as defense-in-depth against that same class of stale-write bug (review
 	 * correction #1/#3), even though disabling already makes a mismatch unreachable today.
 	 */
-	private async handleAdd(path: string, title: string, jump: boolean, buttons: HTMLButtonElement[]): Promise<void> {
+	private async handleAdd(
+		path: string,
+		title: string,
+		jump: boolean,
+		buttons: HTMLButtonElement[],
+		source: AddOutcomeSource,
+	): Promise<void> {
 		if (this.busy) return;
 		this.busy = true;
 		const textToFile = this.draftText;
@@ -925,6 +1063,7 @@ export class QuickCaptureView extends ItemView {
 			this.filedHighlights.set(path, textToFile);
 			this.touchSidebarNote(path, title);
 			if (this.draftText === textToFile) this.draftText = "";
+			this.resolveSortAdd(source, path);
 			this.resetDecision();
 			// Successful filing means the draft is gone (or targeted elsewhere) -- any pending
 			// destination plan/title for it is now moot (brief "Input lifecycle").
@@ -987,6 +1126,7 @@ export class QuickCaptureView extends ItemView {
 			this.filedHighlights.set(file.path, textToFile);
 			this.touchSidebarNote(file.path, file.basename);
 			if (this.draftText === textToFile) this.draftText = "";
+			this.resolveSortTerminal("created-note");
 			this.resetDecision();
 			this.clearDestinationState();
 			this.activeNoteId = file.path;
@@ -1166,8 +1306,8 @@ export class QuickCaptureView extends ItemView {
 		const backBtn = actions.createEl("button", { cls: "ai-quickcap-btn ai-quickcap-btn--ghost", text: "Back" });
 
 		const buttons = [addJumpBtn, addStayBtn, backBtn];
-		addJumpBtn.addEventListener("click", () => void this.handleAdd(selection.path, selection.title, true, buttons));
-		addStayBtn.addEventListener("click", () => void this.handleAdd(selection.path, selection.title, false, buttons));
+		addJumpBtn.addEventListener("click", () => void this.handleAdd(selection.path, selection.title, true, buttons, { kind: "manual-picker" }));
+		addStayBtn.addEventListener("click", () => void this.handleAdd(selection.path, selection.title, false, buttons, { kind: "manual-picker" }));
 		backBtn.addEventListener("click", () => {
 			this.notePickerSelection = null;
 			this.renderFooter(footerEl);

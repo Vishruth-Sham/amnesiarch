@@ -1,4 +1,4 @@
-import { App, PluginSettingTab, Setting, SettingDefinitionItem } from "obsidian";
+import { App, Modal, Notice, PluginSettingTab, Setting, SettingDefinitionItem } from "obsidian";
 import type AmnesiarchPlugin from "../../main";
 
 /** Shown for "Exclude from indexing" in both display() (the actual rendered tab) and
@@ -16,6 +16,55 @@ const EXCLUDE_PATTERNS_DESC =
  *  string[]; getControlValue()/setControlValue() are what translate between the two, the same
  *  way display()'s own addTextArea() callback already does. */
 const EXCLUDE_PATTERNS_CONTROL_KEY = "excludePatternsText";
+
+/** Opt-in, off by default -- see src/settings/Settings.ts's collectSortStats doc comment for why
+ *  (Community Plugin review posture: opt-in is the safer default for existing-plugin behavior
+ *  changes, even though the data itself is local and content-free). */
+const COLLECT_SORT_STATS_DESC =
+	"Locally records how often Sort's suggestions are accepted, overridden, or dismissed, to " +
+	'help tune matching thresholds later. Stored only in this vault\'s plugin directory, as ' +
+	"counts, ranks, scores, and timing -- never note text, titles, paths, folders, tags, or " +
+	"search queries. Off by default. See the README's \"Local Sort statistics\" section for " +
+	"exactly what is and isn't recorded, and how to view it with the local dashboard " +
+	"(`npm run stats`).";
+const COLLECT_SORT_STATS_CONTROL_KEY = "collectSortStats";
+
+const RESET_SORT_STATS_DESC =
+	"Permanently deletes every recorded Sort outcome event for this vault. Does not affect " +
+	"search, the note index, or any other setting. Cannot be undone.";
+
+/** A small, self-contained confirmation dialog -- not Obsidian's built-in `ConfirmationModal`,
+ *  which needs 1.13.0 and would force a further minAppVersion bump just for this one button;
+ *  the plain `Modal` base class has no such requirement. */
+class ResetSortStatsModal extends Modal {
+	constructor(
+		app: App,
+		private onConfirm: () => void,
+	) {
+		super(app);
+	}
+
+	onOpen(): void {
+		const { contentEl } = this;
+		contentEl.createEl("h2", { text: "Reset local Sort statistics?" });
+		contentEl.createEl("p", { text: RESET_SORT_STATS_DESC });
+		new Setting(contentEl)
+			.addButton((btn) => btn.setButtonText("Cancel").onClick(() => this.close()))
+			.addButton((btn) =>
+				btn
+					.setButtonText("Reset statistics")
+					.setWarning()
+					.onClick(() => {
+						this.close();
+						this.onConfirm();
+					}),
+			);
+	}
+
+	onClose(): void {
+		this.contentEl.empty();
+	}
+}
 
 export class AmnesiarchSettingsTab extends PluginSettingTab {
 	constructor(
@@ -48,21 +97,58 @@ export class AmnesiarchSettingsTab extends PluginSettingTab {
 					},
 				],
 			},
+			{
+				type: "group",
+				heading: "Sort statistics",
+				items: [
+					{
+						name: "Collect local Sort outcome statistics",
+						desc: COLLECT_SORT_STATS_DESC,
+						control: {
+							type: "toggle",
+							key: COLLECT_SORT_STATS_CONTROL_KEY,
+						},
+					},
+					{
+						name: "Reset local Sort statistics",
+						desc: RESET_SORT_STATS_DESC,
+						action: () => this.openResetSortStatsModal(),
+					},
+				],
+			},
 		];
 	}
 
 	getControlValue(key: string): unknown {
 		if (key === EXCLUDE_PATTERNS_CONTROL_KEY) return this.plugin.settings.excludePatterns.join("\n");
+		if (key === COLLECT_SORT_STATS_CONTROL_KEY) return this.plugin.settings.collectSortStats;
 		return undefined;
 	}
 
 	setControlValue(key: string, value: unknown): void | Promise<void> {
-		if (key !== EXCLUDE_PATTERNS_CONTROL_KEY) return;
-		this.plugin.settings.excludePatterns = String(value)
-			.split("\n")
-			.map((s) => s.trim())
-			.filter(Boolean);
-		return this.plugin.saveSettings();
+		if (key === EXCLUDE_PATTERNS_CONTROL_KEY) {
+			this.plugin.settings.excludePatterns = String(value)
+				.split("\n")
+				.map((s) => s.trim())
+				.filter(Boolean);
+			return this.plugin.saveSettings();
+		}
+		if (key === COLLECT_SORT_STATS_CONTROL_KEY) {
+			this.plugin.settings.collectSortStats = Boolean(value);
+			return this.plugin.saveSettings();
+		}
+	}
+
+	private openResetSortStatsModal(): void {
+		new ResetSortStatsModal(this.app, () => {
+			void this.plugin.sortStats
+				.reset()
+				.then(() => new Notice("Amnesiarch: local Sort statistics reset."))
+				.catch((e) => {
+					console.error("Amnesiarch: failed to reset sort statistics", e);
+					new Notice("Amnesiarch: couldn't reset Sort statistics — see console for details.");
+				});
+		}).open();
 	}
 
 	display(): void {
@@ -85,6 +171,28 @@ export class AmnesiarchSettingsTab extends PluginSettingTab {
 							.filter(Boolean);
 						await this.plugin.saveSettings();
 					}),
+			);
+
+		new Setting(containerEl).setName("Sort statistics").setHeading();
+
+		new Setting(containerEl)
+			.setName("Collect local Sort outcome statistics")
+			.setDesc(COLLECT_SORT_STATS_DESC)
+			.addToggle((toggle) =>
+				toggle.setValue(this.plugin.settings.collectSortStats).onChange(async (value) => {
+					this.plugin.settings.collectSortStats = value;
+					await this.plugin.saveSettings();
+				}),
+			);
+
+		new Setting(containerEl)
+			.setName("Reset local Sort statistics")
+			.setDesc(RESET_SORT_STATS_DESC)
+			.addButton((btn) =>
+				btn
+					.setButtonText("Reset")
+					.setWarning()
+					.onClick(() => this.openResetSortStatsModal()),
 			);
 	}
 }

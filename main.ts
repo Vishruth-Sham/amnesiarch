@@ -5,6 +5,7 @@ import { VaultIndexer } from "src/index/VaultIndexer";
 import { AmnesiarchSettings, DEFAULT_SETTINGS } from "src/settings/Settings";
 import { AmnesiarchSettingsTab } from "src/settings/SettingsTab";
 import { ProfileCache } from "src/search/ProfileCache";
+import { SortStatsStore } from "src/stats/SortStatsStore";
 import { QuickCaptureView } from "src/view/QuickCaptureView";
 
 export default class AmnesiarchPlugin extends Plugin {
@@ -12,6 +13,7 @@ export default class AmnesiarchPlugin extends Plugin {
 	indexer!: VaultIndexer;
 	profileCache!: ProfileCache;
 	settings!: AmnesiarchSettings;
+	sortStats!: SortStatsStore;
 
 	async onload(): Promise<void> {
 		// loadData() is typed Promise<any> by the Obsidian API -- narrow it to this plugin's own
@@ -24,6 +26,10 @@ export default class AmnesiarchPlugin extends Plugin {
 		this.cache = new NoteCache(this.app, normalizePath(pluginDir));
 		this.indexer = new VaultIndexer(this.app, this.cache, () => this.settings.excludePatterns);
 		this.profileCache = new ProfileCache(this.cache);
+		this.sortStats = new SortStatsStore(this.app, normalizePath(pluginDir), () => this.settings.collectSortStats);
+		// Best-effort and isolated from indexing/Quick Capture -- a stats-file read failure must
+		// never block the plugin (or the vault index, which loads independently right below).
+		void this.sortStats.load().catch((e) => console.error("Amnesiarch: failed to load sort stats", e));
 
 		this.addSettingTab(new AmnesiarchSettingsTab(this.app, this));
 
@@ -113,6 +119,9 @@ export default class AmnesiarchPlugin extends Plugin {
 		// Flush any pending debounced cache write (NoteCache.scheduleSave()) immediately rather
 		// than losing up to CACHE_SAVE_DEBOUNCE_MS of indexing progress on quit/disable.
 		void this.cache.flush().catch((e) => console.error("Amnesiarch: failed to flush cache on unload", e));
+		// Same treatment for any pending debounced sort-stats write -- isolated try/catch so a
+		// stats flush failure can never affect the cache flush above or plugin unload itself.
+		void this.sortStats.flush().catch((e) => console.error("Amnesiarch: failed to flush sort stats on unload", e));
 	}
 
 	async saveSettings(): Promise<void> {
