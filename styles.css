@@ -310,6 +310,7 @@ button.ai-quickcap-match-row:disabled {
 }
 
 .ai-quickcap-match-bar-fill {
+	width: var(--qc-match-strength, 0%);
 	height: 100%;
 	background: rgba(255, 255, 255, 0.4);
 }

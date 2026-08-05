@@ -528,8 +528,8 @@ export class QuickCaptureView extends ItemView {
 		row.createSpan({ cls: "ai-quickcap-match-row-title", text: opts.title });
 		const track = row.createDiv({ cls: "ai-quickcap-match-bar-track" });
 		const pct = relativeMatchStrength(opts.score, opts.topScore);
-		track.createDiv({ cls: "ai-quickcap-match-bar-fill", attr: { style: `width:${pct}%` } });
-		if (opts.isTop) row.createSpan({ cls: "ai-quickcap-match-row-label", text: "best match" });
+		track.createDiv({ cls: "ai-quickcap-match-bar-fill" }).setCssProps({ "--qc-match-strength": `${pct}%` });
+		if (opts.isTop) row.createSpan({ cls: "ai-quickcap-match-row-label", text: "Best match" });
 		if (opts.onClick) row.addEventListener("click", opts.onClick);
 		return row;
 	}
@@ -835,12 +835,14 @@ export class QuickCaptureView extends ItemView {
 		tree.createDiv({ cls: "ai-quickcap-destination-tree-label", text: "Destination" });
 		const folders = composer.getFolders();
 		if (folders.length === 0) {
-			const rootRow = tree.createDiv({ cls: "ai-quickcap-destination-tree-row", attr: { style: "--qc-depth:0" } });
+			const rootRow = tree.createDiv({ cls: "ai-quickcap-destination-tree-row" });
+			rootRow.setCssProps({ "--qc-depth": "0" });
 			rootRow.createSpan({ cls: "ai-quickcap-destination-tree-name", text: "Vault root" });
 			rootRow.createSpan({ cls: "ai-quickcap-destination-tree-tag", text: "Existing" });
 		}
 		folders.forEach((token, depth) => {
-			const row = tree.createDiv({ cls: "ai-quickcap-destination-tree-row", attr: { style: `--qc-depth:${depth}` } });
+			const row = tree.createDiv({ cls: "ai-quickcap-destination-tree-row" });
+			row.setCssProps({ "--qc-depth": String(depth) });
 			row.createSpan({ cls: "ai-quickcap-destination-tree-name", text: token.name });
 			const tag =
 				token.disposition === "create"
@@ -854,7 +856,8 @@ export class QuickCaptureView extends ItemView {
 		// status is "root" or "ready" here -- both are visibly-complete plans (a folder-segment
 		// "collision" status was already handled above; a note-path collision is checked fresh
 		// against the vault below, same as canCreateFromPlan()).
-		const noteRow = tree.createDiv({ cls: "ai-quickcap-destination-tree-row", attr: { style: `--qc-depth:${folders.length}` } });
+		const noteRow = tree.createDiv({ cls: "ai-quickcap-destination-tree-row" });
+		noteRow.setCssProps({ "--qc-depth": String(folders.length) });
 		noteRow.createSpan({ cls: "ai-quickcap-destination-tree-name", text: `${sanitizeTitleForPath(plan.noteTitle)}.md` });
 		const titleLabel = plan.titleSource === "destination" ? "title you typed" : "title inferred from capture";
 		noteRow.createSpan({ cls: "ai-quickcap-destination-tree-tag", text: `New note · ${titleLabel}` });

@@ -1,10 +1,9 @@
 {
 	"id": "amnesiarch",
 	"name": "Amnesiarch",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"minAppVersion": "1.6.6",
 	"description": "Quick Capture for fleeting thoughts: Amnesiarch finds the right note via semantic and structural search, or creates a new one with a folder-aware destination composer.",
 	"author": "Vishruth Sham",
-	"authorUrl": "",
 	"isDesktopOnly": true
 }

@@ -1,6 +1,6 @@
 {
 	"name": "amnesiarch",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"description": "Quick Capture for fleeting thoughts: Amnesiarch finds the right note via semantic and structural search, or creates a new one with a folder-aware destination composer.",
 	"main": "main.js",
 	"scripts": {

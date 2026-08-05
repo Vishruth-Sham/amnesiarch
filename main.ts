@@ -1,4 +1,4 @@
-import { Notice, Plugin, TFile, WorkspaceLeaf } from "obsidian";
+import { normalizePath, Notice, Plugin, TFile, WorkspaceLeaf } from "obsidian";
 import { VIEW_TYPE_AMNESIARCH_QUICK_CAPTURE, LEGACY_VIEW_TYPE_AMNESIARCH_CHAT } from "src/constants";
 import { NoteCache } from "src/index/NoteCache";
 import { VaultIndexer } from "src/index/VaultIndexer";
@@ -20,7 +20,8 @@ export default class AmnesiarchPlugin extends Plugin {
 		const savedData = (await this.loadData()) as Partial<AmnesiarchSettings> | null;
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, savedData ?? {});
 
-		this.cache = new NoteCache(this.app, this.manifest.dir ?? `.obsidian/plugins/${this.manifest.id}`);
+		const pluginDir = this.manifest.dir ?? `${this.app.vault.configDir}/plugins/${this.manifest.id}`;
+		this.cache = new NoteCache(this.app, normalizePath(pluginDir));
 		this.indexer = new VaultIndexer(this.app, this.cache, () => this.settings.excludePatterns);
 		this.profileCache = new ProfileCache(this.cache);
 
