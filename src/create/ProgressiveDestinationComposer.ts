@@ -189,7 +189,7 @@ export class ProgressiveDestinationComposer {
 				attr: { type: "button", "aria-label": `Edit ${token.name}` },
 			});
 			chip.createSpan({ cls: "ai-quickcap-composer-token-name", text: token.name });
-			if (token.disposition === "create") chip.createSpan({ cls: "ai-quickcap-composer-token-badge", text: "new" });
+			if (token.disposition === "create") chip.createSpan({ cls: "ai-quickcap-composer-token-badge", text: "New" });
 			chip.title = token.correctedFrom ? `Corrected from "${token.correctedFrom}"` : token.disposition === "create" ? "Will be created" : "Existing folder";
 			chip.addEventListener("click", () => this.reopenTokenAt(i));
 			this.fieldEl.createSpan({ cls: "ai-quickcap-composer-sep", text: "/" });
