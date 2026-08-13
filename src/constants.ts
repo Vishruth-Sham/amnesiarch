@@ -32,6 +32,22 @@ export const CACHE_SAVE_DEBOUNCE_MS = 10_000;
  *  so quitting mid-build loses at most this many notes of progress, not the whole batch. */
 export const SAVE_CHECKPOINT_INTERVAL = 200;
 
+/** Local-only Sort outcome statistics -- see research/implementation-handoffs/
+ *  quick-capture-local-sort-usage-stats.md. Deliberately a separate file from
+ *  notes-cache.json (disposable/rebuildable) and data.json (settings, different write
+ *  frequency/lifecycle). */
+export const STATS_FILE_NAME = "sort-stats.json";
+export const STATS_SCHEMA_VERSION = 1;
+/** Much shorter than CACHE_SAVE_DEBOUNCE_MS -- individual stats events are tiny (categorical
+ *  fields only, see SortOutcome.ts), so coalescing bursts within a couple seconds is enough;
+ *  there's no large-file-rewrite cost to justify waiting as long as the note cache does. */
+export const STATS_SAVE_DEBOUNCE_MS = 3_000;
+/** Bounded retention: the latest N complete Sort presentation+resolution pairs, pruned as
+ *  whole pairs (never splitting one) -- see SortStatsStore.pruneRetention(). Keeps
+ *  sort-stats.json small indefinitely while preserving enough real usage for threshold
+ *  analysis (recommended by the implementation brief). */
+export const STATS_RETENTION_LIMIT = 2_000;
+
 /** Target size of one embedded chunk, in characters. ~4 chars/token is a common approximation,
  *  so ~800 chars ≈ 200 tokens -- comfortably under all-MiniLM-L6-v2's 256-token max_seq_length,
  *  leaving margin before the tokenizer silently truncates (see plans/v2-scale-first.md §2.3). */

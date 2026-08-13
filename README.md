@@ -14,6 +14,24 @@ Amnesiarch does not use API keys, telemetry, or a hosted search service, and it 
 
 Amnesiarch currently supports Obsidian desktop only. For a manual or pre-release installation, see [Installing from source](./docs/install-from-source.md) for git clone and [BRAT](https://github.com/TfTHacker/obsidian42-brat) options.
 
+## Local Sort statistics (optional, off by default)
+
+Amnesiarch can locally record how Sort's suggestions get used — accepted, overridden, searched around, or dismissed — as evidence for tuning its matching thresholds later. This is entirely opt-in: enable it under Settings → Amnesiarch → Sort statistics → "Collect local Sort outcome statistics".
+
+What's recorded: which decision state Sort showed (a confident match, a few candidates, no confident match), whether you accepted the top suggestion, picked something else, searched instead, created a new note, or dismissed the card — plus the matching/candidate scores, how long the decision took, and the thresholds active at the time.
+
+What's never recorded: your note text, titles, paths, folder names, tags, search queries, or embeddings. Nothing leaves your device, and nothing recorded can identify which notes you actually use.
+
+Everything lives in one local file in the plugin's own directory: `<vault>/.obsidian/plugins/amnesiarch/sort-stats.json`. Turning the setting off stops new events but keeps whatever was already recorded; use "Reset local Sort statistics" in the same section to delete it outright (this asks for confirmation first).
+
+To review what's been recorded, run the bundled developer dashboard from a local clone of this repository (not from inside Obsidian itself):
+
+```bash
+npm run stats -- --vault "/absolute/path/to/your/vault"
+```
+
+This starts a small page at `http://127.0.0.1:4176`, bound to loopback only with no external requests, showing acceptance/override rates, decision timing, and the thresholds observed — plus a button to copy the aggregated numbers (counts and rates only, never vault content) for sharing as evidence elsewhere.
+
 ## Development
 
 ```bash
