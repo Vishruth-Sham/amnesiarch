@@ -16,6 +16,7 @@ const EXCLUDE_PATTERNS_DESC =
  *  string[]; getControlValue()/setControlValue() are what translate between the two, the same
  *  way display()'s own addTextArea() callback already does. */
 const EXCLUDE_PATTERNS_CONTROL_KEY = "excludePatternsText";
+const REBUILD_INDEX_DESC = "Rebuild the local index now so newly excluded notes stop appearing in suggestions.";
 
 /** Opt-in, off by default -- see src/settings/Settings.ts's collectSortStats doc comment for why
  *  (Community Plugin review posture: opt-in is the safer default for existing-plugin behavior
@@ -95,6 +96,11 @@ export class AmnesiarchSettingsTab extends PluginSettingTab {
 							rows: 4,
 						},
 					},
+					{
+						name: "Apply exclusion changes",
+						desc: REBUILD_INDEX_DESC,
+						action: () => void this.rebuildIndex(),
+					},
 				],
 			},
 			{
@@ -151,6 +157,17 @@ export class AmnesiarchSettingsTab extends PluginSettingTab {
 		}).open();
 	}
 
+	private async rebuildIndex(): Promise<void> {
+		new Notice("Amnesiarch: rebuilding index from scratch…");
+		try {
+			await this.plugin.indexer.rebuildAll();
+			new Notice(`Amnesiarch: rebuilt (${this.plugin.cache.size()} notes indexed).`);
+		} catch (e) {
+			console.error("Amnesiarch: failed to rebuild index", e);
+			new Notice("Amnesiarch: couldn't rebuild the index — see console for details.");
+		}
+	}
+
 	display(): void {
 		const { containerEl } = this;
 		containerEl.empty();
@@ -171,6 +188,17 @@ export class AmnesiarchSettingsTab extends PluginSettingTab {
 							.filter(Boolean);
 						await this.plugin.saveSettings();
 					}),
+			);
+
+		new Setting(containerEl)
+			.setName("Apply exclusion changes")
+			.setDesc(REBUILD_INDEX_DESC)
+			.addButton((button) =>
+				button.setButtonText("Rebuild index").onClick(() => {
+					button.setDisabled(true).setButtonText("Rebuilding…");
+					void this.rebuildIndex()
+						.finally(() => button.setDisabled(false).setButtonText("Rebuild index"));
+				}),
 			);
 
 		new Setting(containerEl).setName("Sort statistics").setHeading();
